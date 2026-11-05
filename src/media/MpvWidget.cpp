@@ -15,14 +15,27 @@ MpvWidget::MpvWidget(QWidget *parent) : QOpenGLWidget(parent)
     m_mpv = mpv_create();
     if (!m_mpv)
         return;
-    for (const auto &option :
-         {qMakePair("vo", "libmpv"), qMakePair("config", "no"), qMakePair("terminal", "no"),
-          qMakePair("msg-level", "all=no"), qMakePair("hwdec", "auto-safe"), qMakePair("ytdl", "no"),
-          qMakePair("load-unsafe-playlists", "no"), qMakePair("access-references", "no"),
-          qMakePair("input-default-bindings", "no"), qMakePair("input-vo-keyboard", "no"),
-          qMakePair("demuxer-max-bytes", "32MiB"), qMakePair("demuxer-max-back-bytes", "8MiB"),
-          qMakePair("cache-secs", "20"), qMakePair("keep-open", "yes"), qMakePair("mute", "yes"),
-          qMakePair("loop-file", "inf"), qMakePair("user-agent", "BooruTagger/" BOORUTAGGER_VERSION)})
+    for (const auto &option : {qMakePair("vo", "libmpv"),
+                               qMakePair("config", "no"),
+                               qMakePair("terminal", "no"),
+                               qMakePair("load-scripts", "no"),
+                               qMakePair("osc", "no"),
+                               qMakePair("sub-auto", "no"),
+                               qMakePair("audio-file-auto", "no"),
+                               qMakePair("msg-level", "all=no"),
+                               qMakePair("hwdec", "auto-safe"),
+                               qMakePair("ytdl", "no"),
+                               qMakePair("load-unsafe-playlists", "no"),
+                               qMakePair("access-references", "no"),
+                               qMakePair("input-default-bindings", "no"),
+                               qMakePair("input-vo-keyboard", "no"),
+                               qMakePair("demuxer-max-bytes", "32MiB"),
+                               qMakePair("demuxer-max-back-bytes", "8MiB"),
+                               qMakePair("cache-secs", "20"),
+                               qMakePair("keep-open", "yes"),
+                               qMakePair("mute", "yes"),
+                               qMakePair("loop-file", "inf"),
+                               qMakePair("user-agent", "BooruTagger/" BOORUTAGGER_VERSION)})
         mpv_set_option_string(m_mpv, option.first, option.second);
     if (mpv_initialize(m_mpv) < 0) {
         mpv_terminate_destroy(m_mpv);

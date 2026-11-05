@@ -4,6 +4,7 @@
 #include <QResizeEvent>
 #include <QShortcut>
 #include <QWheelEvent>
+#include <cmath>
 
 namespace bt {
 
@@ -53,7 +54,12 @@ void ImageView::wheelEvent(QWheelEvent *event)
 {
     if (m_scene->items().isEmpty())
         return;
-    const double factor = event->angleDelta().y() > 0 ? 1.15 : 1.0 / 1.15;
+    const auto delta = event->angleDelta().y() != 0 ? event->angleDelta().y() : event->pixelDelta().y();
+    if (delta == 0) {
+        QGraphicsView::wheelEvent(event);
+        return;
+    }
+    const double factor = std::pow(1.15, delta / 120.0);
     const double next = transform().m11() * factor;
     if (next > 0.005 && next < 64) {
         m_fit = false;

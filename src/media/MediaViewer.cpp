@@ -20,7 +20,10 @@ namespace bt {
 namespace {
 bool isVideo(const QString &extension)
 {
-    return QStringList{"mp4", "webm", "mkv", "mov", "avi", "m4v", "gif", "apng", "ogv"}.contains(extension.toLower());
+    const auto ext = extension.toLower().toLatin1();
+    if (ext == "gif" || ext == "apng")
+        return true;
+    return !ext.isEmpty() && !QImageReader::supportedImageFormats().contains(ext);
 }
 QString clockText(double value)
 {
@@ -51,6 +54,9 @@ MediaViewer::MediaViewer(QWidget *parent) : QWidget(parent)
     auto *timeline = new QHBoxLayout;
     m_seek = new QSlider(Qt::Horizontal, m_videoPage);
     m_seek->setRange(0, 10000);
+    m_seek->setSingleStep(100);
+    m_seek->setPageStep(1000);
+    m_seek->setObjectName("videoTimeline");
     m_time = new QLabel("0:00 / 0:00", m_videoPage);
     timeline->addWidget(m_seek, 1);
     timeline->addWidget(m_time);
@@ -92,6 +98,10 @@ MediaViewer::MediaViewer(QWidget *parent) : QWidget(parent)
     connect(volume, &QSlider::valueChanged, m_video, &MpvWidget::setVolume);
     connect(m_seek, &QSlider::sliderReleased, this,
             [this] { m_video->seek(m_duration * m_seek->value() / 10000.0, true); });
+    connect(m_seek, &QSlider::actionTriggered, this, [this] {
+        if (!m_seek->isSliderDown())
+            m_video->seek(m_duration * m_seek->sliderPosition() / 10000.0, true);
+    });
     connect(m_video, &MpvWidget::positionChanged, this, [this](double position) {
         if (!m_seek->isSliderDown())
             m_seek->setValue(m_duration > 0 ? qRound(position / m_duration * 10000) : 0);

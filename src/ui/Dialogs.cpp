@@ -321,6 +321,9 @@ VerificationDecision reviewVerification(const QSet<QString> &expected, const Pos
     auto *accept = buttons->addButton(QObject::tr("Accept server result as completed"), QDialogButtonBox::AcceptRole);
     auto *retry = buttons->addButton(QObject::tr("Keep draft; allow a new attempt"), QDialogButtonBox::ActionRole);
     auto *cancel = buttons->addButton(QObject::tr("Leave uncertain"), QDialogButtonBox::RejectRole);
+    accept->setObjectName("acceptServerResult");
+    retry->setObjectName("allowNewAttempt");
+    cancel->setObjectName("leaveUncertain");
     accept->setAutoDefault(false);
     retry->setAutoDefault(false);
     cancel->setDefault(true);

@@ -83,6 +83,7 @@ class MainWindow : public QMainWindow {
     bool m_syncing = false;
     bool m_loading = false;
     QString m_noticeSession;
+    QString m_mediaContext;
 };
 
 void applyAppearance(bool dark);

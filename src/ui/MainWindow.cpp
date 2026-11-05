@@ -292,7 +292,12 @@ void MainWindow::connectEngine()
                     info += QStringLiteral(" · %1 × %2").arg(post.dimensions.width()).arg(post.dimensions.height());
                 m_info->setText(info + " · " + m_provider->instance().name);
                 m_error->hide();
-                m_media->load(post, m_provider->http());
+                const auto mediaContext =
+                    m_provider->instance().id + ':' + QString::number(post.id) + ':' + post.mediaUrl.toString();
+                if (mediaContext != m_mediaContext) {
+                    m_mediaContext = mediaContext;
+                    m_media->load(post, m_provider->http());
+                }
                 setWindowTitle(QStringLiteral("#%1 — %2 — BooruTagger").arg(post.id).arg(m_engine->session().name));
                 m_editor->focusInput();
                 updateActions();
@@ -334,6 +339,7 @@ void MainWindow::connectEngine()
         m_loading = loading;
         if (loading) {
             m_error->hide();
+            m_mediaContext.clear();
             m_media->clear(m_engine->building() ? tr("Discovering and storing post IDs…") : tr("Loading post…"));
             m_info->setText(m_engine->building()
                                 ? tr("Building a stable queue. No edits are submitted during discovery.")
@@ -373,6 +379,7 @@ void MainWindow::connectEngine()
         m_progressBar->setValue(done);
     });
     connect(m_engine, &SessionEngine::finished, this, [this] {
+        m_mediaContext.clear();
         m_media->clear(tr("Queue finished. Use Previous or Jump to review posts and skipped drafts."));
         m_info->setText(tr("End of “%1”").arg(m_engine->session().name));
         updateActions();
@@ -419,6 +426,7 @@ void MainWindow::selectInstance(const QString &id)
         flushEdit();
         m_completion->setProvider(nullptr);
         m_engine->deactivate();
+        m_mediaContext.clear();
         m_media->clear();
         delete m_provider;
         m_provider = nullptr;
@@ -606,11 +614,17 @@ void MainWindow::history()
             if (row < 0 || row >= entries.size())
                 return;
             const auto &entry = entries.at(row);
-            text->setPlainText(QObject::tr("Original snapshot:\n%1\n\nVerified result (empty for failed "
-                                           "attempts):\n%2\n\nAdded:\n%3\n\nRemoved:\n%4\n\n%5")
-                                   .arg(sortedTags(entry.original).join(' '), sortedTags(entry.result).join(' '),
-                                        sortedTags(entry.result - entry.original).join(' '),
-                                        sortedTags(entry.original - entry.result).join(' '), entry.error));
+            if (entry.outcome != "completed") {
+                text->setPlainText(QObject::tr("Unverified attempt. Check the preserved draft before "
+                                               "retrying.\n\nOriginal snapshot:\n%1\n\n%2")
+                                       .arg(sortedTags(entry.original).join(' '), entry.error));
+                return;
+            }
+            text->setPlainText(
+                QObject::tr("Original snapshot:\n%1\n\nVerified result:\n%2\n\nAdded:\n%3\n\nRemoved:\n%4\n\n%5")
+                    .arg(sortedTags(entry.original).join(' '), sortedTags(entry.result).join(' '),
+                         sortedTags(entry.result - entry.original).join(' '),
+                         sortedTags(entry.original - entry.result).join(' '), entry.error));
         });
         connect(browser, &QPushButton::clicked, &dialog, [this, entries, list] {
             if (list->currentRow() >= 0)

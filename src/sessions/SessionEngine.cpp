@@ -377,6 +377,8 @@ void SessionEngine::edit(const TagChanges &changes, bool sufficient)
 {
     if (!ready() || busy() || m_state == SubmissionState::Uncertain)
         return;
+    if (changes == m_draft.changes && sufficient == m_draft.sufficient)
+        return;
     safely([&] {
         if (changes.original != m_draft.changes.original) {
             emit error({ErrorKind::InvalidData, tr("The editor snapshot does not match the active post.")});
@@ -456,6 +458,11 @@ void SessionEngine::save(bool advance)
         return;
     safely([&] {
         m_advance = advance;
+        if (m_state == SubmissionState::Completed && !m_draft.changes.dirty()) {
+            if (advance)
+                jump(m_db->nextPending(m_session.id, m_session.current));
+            return;
+        }
         if (m_state == SubmissionState::Uncertain && m_draft.hasIntended) {
             transition(SubmissionState::Confirming);
             verify(true);

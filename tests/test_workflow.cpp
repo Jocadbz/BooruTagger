@@ -207,6 +207,12 @@ class WorkflowTests : public QObject {
             sufficient->setChecked(true);
             auto *saveNext = window.findChild<QAction *>("saveNextAction");
             QVERIFY(saveNext->isEnabled());
+            imageView->actualSize();
+            auto *save = window.findChild<QAction *>("saveAction");
+            save->trigger();
+            QTRY_COMPARE_WITH_TIMEOUT(engine->state(), SubmissionState::Completed, 10000);
+            QCOMPARE(engine->post().id, 1);
+            QCOMPARE(imageView->transform().m11(), 1.0);
             saveNext->trigger();
             QTRY_COMPARE_WITH_TIMEOUT(engine->post().id, 2, 10000);
             QTRY_VERIFY(input->isEnabled());

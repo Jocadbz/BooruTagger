@@ -85,6 +85,10 @@ QString HttpClient::redact(QString text) const
         if (!secret.isEmpty())
             text.replace(secret, QStringLiteral("[redacted]"));
     }
+    for (const auto &cookie : m_manager.cookieJar()->cookiesForUrl(endpoint(m_instance.baseUrl, "graphql"))) {
+        if (cookie.name() == "shm_session" && !cookie.value().isEmpty())
+            text.replace(QString::fromUtf8(cookie.value()), QStringLiteral("[redacted]"));
+    }
     return text.left(600);
 }
 
@@ -92,6 +96,11 @@ QNetworkReply *HttpClient::send(const QByteArray &method, const QUrl &url, const
                                 Callback<HttpResponse> callback, bool media, int redirects)
 {
     const bool local = sameOrigin(url, m_instance.baseUrl);
+    auto basePath = m_instance.baseUrl.path();
+    while (basePath.endsWith('/'))
+        basePath.chop(1);
+    const bool credentialScope =
+        local && (basePath.isEmpty() || url.path() == basePath || url.path().startsWith(basePath + '/'));
     if ((!media && !local) || (url.scheme() != "https" && !(url.scheme() == "http" && m_instance.allowHttp)) ||
         !url.userInfo().isEmpty()) {
         QMetaObject::invokeMethod(
@@ -127,17 +136,25 @@ QNetworkReply *HttpClient::send(const QByteArray &method, const QUrl &url, const
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
                          media ? QNetworkRequest::PreferCache : QNetworkRequest::AlwaysNetwork);
     request.setAttribute(QNetworkRequest::CacheSaveControlAttribute, media);
-    if (!local) {
+    if (!credentialScope) {
         request.setAttribute(QNetworkRequest::CookieLoadControlAttribute, QNetworkRequest::Manual);
         request.setAttribute(QNetworkRequest::CookieSaveControlAttribute, QNetworkRequest::Manual);
     }
-    if (local && !m_authorization.isEmpty())
+    if (credentialScope && !m_authorization.isEmpty())
         request.setRawHeader("Authorization", m_authorization);
     if (!body.isEmpty())
         request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     // API redirects are rejected. Media redirects are followed only after rebuilding the request.
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
-    auto *reply = m_manager.sendCustomRequest(request, method, body);
+    QNetworkReply *reply = nullptr;
+    if (method == "GET")
+        reply = m_manager.get(request);
+    else if (method == "POST")
+        reply = m_manager.post(request, body);
+    else if (method == "PUT")
+        reply = m_manager.put(request, body);
+    else
+        reply = m_manager.sendCustomRequest(request, method, body);
     reply->setProperty("mediaRequest", media);
     m_replies.insert(reply);
     const qint64 maximum = media ? 64 * 1024 * 1024 : 16 * 1024 * 1024;
@@ -160,7 +177,8 @@ QNetworkReply *HttpClient::send(const QByteArray &method, const QUrl &url, const
         bytes->append(reply->readAll());
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const auto redirect = reply->attribute(QNetworkRequest::RedirectionTargetAttribute).toUrl();
-        if (media && status >= 300 && status < 400 && redirect.isValid() && redirects < 5) {
+        if (media && reply->error() == QNetworkReply::NoError && status >= 300 && status < 400 && redirect.isValid() &&
+            redirects < 5) {
             reply->deleteLater();
             send("GET", url.resolved(redirect), {}, callback, true, redirects + 1);
             return;
