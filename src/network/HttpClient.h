@@ -21,6 +21,7 @@ public:
     void setBasicAuth(const QString &username, const QString &secret);
     void setSessionCookies(const QString &username, const QString &session);
     void clearAuthentication();
+    void setAccountId(qint64 id) { m_accountId = id; }
     void cancelAll();
     QString redact(QString text) const;
     QNetworkAccessManager *manager() { return &m_manager; }
@@ -35,6 +36,7 @@ private:
     QStringList m_secrets;
     QSet<QNetworkReply *> m_replies;
     QDateTime m_retryAt;
+    qint64 m_accountId = 0;
 };
 
 }

@@ -53,6 +53,7 @@ void HttpClient::setSessionCookies(const QString &username, const QString &sessi
 void HttpClient::clearAuthentication()
 {
     m_authorization.clear();
+    m_accountId = 0;
     m_secrets.clear();
     m_manager.setCookieJar(new QNetworkCookieJar(&m_manager));
     m_manager.clearAccessCache();
@@ -80,7 +81,10 @@ QNetworkReply *HttpClient::send(const QByteArray &method, const QUrl &url, const
     }
     QNetworkRequest request(url);
     request.setTransferTimeout(media ? 60000 : 30000);
-    request.setRawHeader("User-Agent", "BooruTagger/" BOORUTAGGER_VERSION " (native tagging workstation)");
+    QByteArray agent = "BooruTagger/" BOORUTAGGER_VERSION " (native tagging workstation";
+    if (m_accountId > 0)
+        agent += "; user #" + QByteArray::number(m_accountId);
+    request.setRawHeader("User-Agent", agent + ')');
     request.setRawHeader("Accept", media ? "*/*" : "application/json");
     request.setAttribute(QNetworkRequest::AuthenticationReuseAttribute, QNetworkRequest::Manual);
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
