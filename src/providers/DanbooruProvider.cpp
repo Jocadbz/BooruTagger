@@ -9,7 +9,10 @@ namespace bt {
 
 void DanbooruProvider::get(const QUrl &url, Callback<QJsonDocument> callback)
 {
-    m_http.send("GET", url, {}, [callback](Result<HttpResponse> response) {
+    const auto generation = m_generation;
+    m_http.send("GET", url, {}, [this, generation, callback](Result<HttpResponse> response) {
+        if (generation != m_generation)
+            return;
         if (!response)
             callback(Result<QJsonDocument>::failure(response.error));
         else
@@ -183,7 +186,9 @@ void DanbooruProvider::updateTags(qint64 id, const QSet<QString> &tags, const QS
                                                {"old_tag_string", sortedTags(latest).join(' ')}}}};
     writeLater([this, id, body, callback] {
         m_http.send("PUT", endpoint(instance().baseUrl, QStringLiteral("posts/%1.json").arg(id)),
-                    QJsonDocument(body).toJson(QJsonDocument::Compact), [id, callback](Result<HttpResponse> response) {
+                    QJsonDocument(body).toJson(QJsonDocument::Compact), [this, generation = m_generation, id, callback](Result<HttpResponse> response) {
+            if (generation != m_generation)
+                return;
             if (!response) {
                 callback(Result<bool>::failure(response.error));
                 return;

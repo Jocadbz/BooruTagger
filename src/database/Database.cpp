@@ -186,12 +186,14 @@ QList<Session> Database::sessions(const QString &instanceId) const
     return sessions;
 }
 
-int Database::appendQueue(const QString &sessionId, const QList<qint64> &ids)
+int Database::appendQueue(const QString &sessionId, const QList<qint64> &ids, int maximumNew)
 {
     int added = 0;
     transaction([&] {
         int next = queueSize(sessionId);
         for (const auto id : ids) {
+            if (added >= maximumNew)
+                break;
             if (id < 1)
                 continue;
             auto query = run("INSERT OR IGNORE INTO queue(session_id,post_id,position) VALUES(?,?,?)", {sessionId, id, next});

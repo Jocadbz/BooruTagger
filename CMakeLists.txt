@@ -29,6 +29,8 @@ add_library(booru_core
     src/database/Database.h
     src/sessions/Session.h
     src/sessions/Session.cpp
+    src/sessions/SessionEngine.cpp
+    src/sessions/SessionEngine.h
 )
 target_include_directories(booru_core PUBLIC src)
 target_link_libraries(booru_core PUBLIC Qt6::Core Qt6::Network Qt6::Sql)
@@ -66,6 +68,9 @@ if(BUILD_TESTING)
     add_executable(test_database tests/test_database.cpp)
     target_link_libraries(test_database PRIVATE booru_core Qt6::Test)
     add_test(NAME database COMMAND test_database)
+    add_executable(test_sessions tests/test_sessions.cpp)
+    target_link_libraries(test_sessions PRIVATE booru_core Qt6::Test)
+    add_test(NAME sessions COMMAND test_sessions)
     add_executable(test_widgets tests/test_widgets.cpp)
     target_link_libraries(test_widgets PRIVATE booru_widgets Qt6::Test)
     add_test(NAME widgets COMMAND test_widgets -platform offscreen)

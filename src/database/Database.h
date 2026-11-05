@@ -21,7 +21,7 @@ public:
     void updateSession(const Session &session);
     std::optional<Session> session(const QString &id) const;
     QList<Session> sessions(const QString &instanceId = {}) const;
-    int appendQueue(const QString &sessionId, const QList<qint64> &ids);
+    int appendQueue(const QString &sessionId, const QList<qint64> &ids, int maximumNew = 100000);
     void sortQueue(const QString &sessionId, bool ascending);
     int queueSize(const QString &sessionId) const;
     int doneCount(const QString &sessionId) const;

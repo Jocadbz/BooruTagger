@@ -69,7 +69,9 @@ void ShimmieProvider::graphql(const QString &query, const QJsonObject &variables
 {
     const QJsonObject body{{"query", query}, {"variables", variables}};
     m_http.send("POST", endpoint(instance().baseUrl, "graphql"), QJsonDocument(body).toJson(QJsonDocument::Compact),
-                [this, callback, login](Result<HttpResponse> response) {
+                [this, generation = m_generation, callback, login](Result<HttpResponse> response) {
+        if (generation != m_generation)
+            return;
         auto result = response ? parseEnvelope(response.value->body) : Result<QJsonObject>::failure(response.error);
         if (!result) {
             result.error.message = login ? tr("Shimmie login failed. Check the credentials and the GraphQL extension (2.12+).")
