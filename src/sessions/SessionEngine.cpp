@@ -120,6 +120,14 @@ void SessionEngine::activate(const QString &sessionId, BooruProvider *provider)
         detach();
         m_provider = provider;
         m_session = *session;
+        if (m_session.status != "building" && m_session.current >= m_db->queueSize(m_session.id)) {
+            const auto drafts = m_db->pendingDrafts(m_session.id, 1);
+            if (!drafts.isEmpty()) {
+                m_session.current = drafts.first().position;
+                m_session.status = "ready";
+                m_db->updateSession(m_session);
+            }
+        }
         emit sessionChanged(m_session);
         if (m_session.status == "building") {
             m_building = true;

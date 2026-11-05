@@ -45,6 +45,7 @@ class MainWindow : public QMainWindow {
     void showError(const Error &error);
     void openPost(qint64 id);
     void jump();
+    void pendingDrafts();
     void history();
     void rebuildPresets();
     void savePreset();
@@ -78,6 +79,7 @@ class MainWindow : public QMainWindow {
     QAction *m_openBrowser;
     QAction *m_retry;
     QAction *m_jump;
+    QAction *m_drafts;
     QAction *m_useQueue;
     QList<QAction *> m_tagActions;
     bool m_syncing = false;

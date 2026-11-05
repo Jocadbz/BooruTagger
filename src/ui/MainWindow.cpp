@@ -139,6 +139,8 @@ void MainWindow::buildUi()
         m_engine->save(true);
     });
     m_saveNext->setShortcuts({QKeySequence("Ctrl+Return"), QKeySequence("Ctrl+Enter")});
+    m_save->setAutoRepeat(false);
+    m_saveNext->setAutoRepeat(false);
     m_saveNext->setObjectName("saveNextAction");
     m_save->setObjectName("saveAction");
     m_retry = sessions->addAction(tr("&Reload / retry discovery"), QKeySequence::Refresh, this, [this] {
@@ -146,6 +148,7 @@ void MainWindow::buildUi()
         m_engine->reload();
     });
     m_jump = sessions->addAction(tr("&Jump to queue position…"), QKeySequence("Ctrl+J"), this, &MainWindow::jump);
+    m_drafts = sessions->addAction(tr("&Pending drafts…"), QKeySequence("Ctrl+D"), this, &MainWindow::pendingDrafts);
     m_useQueue =
         sessions->addAction(tr("Stop discovery and use stored &IDs"), this, [this] { m_engine->useDiscoveredQueue(); });
     sessions->addSeparator();
@@ -168,7 +171,7 @@ void MainWindow::buildUi()
                "Ctrl+K   Focus tag input\nEnter / Tab   Accept suggestion or add typed tags\nEscape   Close "
                "suggestions\nDelete   Remove selected tags\n"
                "Ctrl+E   Edit full tag list\nCtrl+Z / Ctrl+Shift+Z   Undo / redo tags\nAlt+T   Confirm sufficiently "
-               "tagged\nCtrl+J   Jump in queue\n"
+               "tagged\nCtrl+J   Jump in queue\nCtrl+D   Pending drafts\n"
                "Ctrl+B   Open post in browser\nF5   Reload / retry discovery\n\nWith media focused:\nF   Fit "
                "image\nSpace   Play / pause\nLeft / Right   Seek 5 seconds\n. / ,   Step forward / backward"));
     });
@@ -380,7 +383,7 @@ void MainWindow::connectEngine()
     });
     connect(m_engine, &SessionEngine::finished, this, [this] {
         m_mediaContext.clear();
-        m_media->clear(tr("Queue finished. Use Previous or Jump to review posts and skipped drafts."));
+        m_media->clear(tr("Queue finished. Ctrl+D opens pending drafts; Previous or Jump reopens other posts."));
         m_info->setText(tr("End of “%1”").arg(m_engine->session().name));
         updateActions();
     });
@@ -537,6 +540,7 @@ void MainWindow::updateActions()
     m_previous->setEnabled(active && !busy && !m_engine->building());
     m_skip->setEnabled(active && !busy && !m_engine->building());
     m_jump->setEnabled(active && !busy && !m_engine->building());
+    m_drafts->setEnabled(active && !busy && !m_engine->building());
     m_save->setEnabled(ready && !busy);
     m_saveNext->setEnabled(ready && !busy);
     m_openBrowser->setEnabled(m_engine->post().id > 0);
@@ -633,6 +637,27 @@ void MainWindow::history()
         connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
         list->setCurrentRow(entries.isEmpty() ? -1 : 0);
         dialog.exec();
+    });
+}
+
+void MainWindow::pendingDrafts()
+{
+    flushEdit();
+    guarded([&] {
+        const auto drafts = m_db->pendingDrafts(m_engine->session().id);
+        if (drafts.isEmpty()) {
+            QMessageBox::information(this, tr("Pending drafts"), tr("No unfinished edits in this session."));
+            return;
+        }
+        QStringList choices;
+        for (const auto &draft : drafts)
+            choices.append(
+                tr("#%1 · queue position %2 · %3").arg(draft.postId).arg(draft.position + 1).arg(draft.status));
+        bool ok = false;
+        const auto selected =
+            QInputDialog::getItem(this, tr("Pending drafts"), tr("Reopen an unfinished edit"), choices, 0, false, &ok);
+        if (ok)
+            m_engine->jump(drafts.at(choices.indexOf(selected)).position);
     });
 }
 

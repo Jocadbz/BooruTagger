@@ -32,6 +32,7 @@ class Database {
     void saveDraft(const QString &sessionId, qint64 postId, const Draft &draft);
     std::optional<Draft> draft(const QString &sessionId, qint64 postId) const;
     bool hasPendingDrafts(const QString &sessionId) const;
+    QList<QueueEntry> pendingDrafts(const QString &sessionId, int limit = 100000) const;
     void complete(Session &session, qint64 postId, const Draft &draft, const QSet<QString> &actual, bool advance);
     void recordHistory(const Session &session, qint64 postId, const Draft &draft, const QSet<QString> &actual,
                        const QString &outcome);

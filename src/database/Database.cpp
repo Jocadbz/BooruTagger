@@ -347,6 +347,18 @@ bool Database::hasPendingDrafts(const QString &sessionId) const
     return q.next();
 }
 
+QList<QueueEntry> Database::pendingDrafts(const QString &sessionId, int limit) const
+{
+    auto q = run("SELECT q.* FROM queue q JOIN drafts d ON q.session_id=d.session_id AND q.post_id=d.post_id "
+                 "WHERE q.session_id=? AND (d.added!='[]' OR d.removed!='[]' OR d.has_intended=1 OR d.sufficient=1) "
+                 "ORDER BY q.position LIMIT ?",
+                 {sessionId, limit});
+    QList<QueueEntry> entries;
+    while (q.next())
+        entries.append(readQueue(q));
+    return entries;
+}
+
 void Database::complete(Session &s, qint64 postId, const Draft &d, const QSet<QString> &actual, bool advance)
 {
     auto next = s;

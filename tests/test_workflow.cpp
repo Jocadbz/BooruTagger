@@ -209,11 +209,13 @@ class WorkflowTests : public QObject {
             QVERIFY(saveNext->isEnabled());
             imageView->actualSize();
             auto *save = window.findChild<QAction *>("saveAction");
-            save->trigger();
+            QVERIFY(save->isEnabled());
+            QTest::keyClick(input, Qt::Key_S, Qt::ControlModifier);
             QTRY_COMPARE_WITH_TIMEOUT(engine->state(), SubmissionState::Completed, 10000);
             QCOMPARE(engine->post().id, 1);
             QCOMPARE(imageView->transform().m11(), 1.0);
-            saveNext->trigger();
+            QTRY_VERIFY(input->hasFocus());
+            QTest::keyClick(input, Qt::Key_Return, Qt::ControlModifier);
             QTRY_COMPARE_WITH_TIMEOUT(engine->post().id, 2, 10000);
             QTRY_VERIFY(input->isEnabled());
             QCOMPARE(writes, 1);
@@ -222,11 +224,13 @@ class WorkflowTests : public QObject {
             QTest::keyClicks(input, "long_hair");
             QTest::keyClick(input, Qt::Key_Return);
             deny = true;
-            saveNext->trigger();
+            QTest::keyClick(input, Qt::Key_Return, Qt::ControlModifier);
             QTRY_COMPARE_WITH_TIMEOUT(engine->state(), SubmissionState::Failed, 10000);
             QCOMPARE(engine->session().current, 1);
             QVERIFY(input->isEnabled());
             QVERIFY(tags[2].contains("tagme"));
+            QTest::keyClick(&window, Qt::Key_K, Qt::ControlModifier);
+            QTRY_VERIFY(input->hasFocus());
             QTest::keyClicks(input, "custom_tag");
             QVERIFY(window.close());
         }

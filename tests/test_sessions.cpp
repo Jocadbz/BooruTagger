@@ -390,6 +390,30 @@ class SessionTests : public QObject {
         }
         QTest::qWait(50);
     }
+    void resumeSkippedDraftAfterEndOfQueue()
+    {
+        Database db(":memory:");
+        db.saveInstance(instance);
+        MockProvider provider(instance);
+        provider.posts.insert(1, post(1));
+        SessionEngine engine(&db);
+        engine.create(spec(), &provider);
+        QTRY_VERIFY(engine.ready());
+        const auto id = engine.session().id;
+        auto changes = engine.draft().changes;
+        changes.add("unfinished_tag");
+        engine.edit(changes, false);
+        engine.skip();
+        QCOMPARE(engine.session().status, QString("finished"));
+        QVERIFY(db.hasPendingDrafts(id));
+        engine.deactivate();
+        engine.activate(id, &provider);
+        QTRY_VERIFY(engine.ready());
+        QCOMPARE(engine.post().id, 1);
+        QCOMPARE(engine.session().current, 0);
+        QVERIFY(engine.draft().changes.added.contains("unfinished_tag"));
+        QCOMPARE(provider.writes, 0);
+    }
 };
 
 QTEST_GUILESS_MAIN(SessionTests)

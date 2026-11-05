@@ -37,6 +37,8 @@ class DatabaseTests : public QObject {
             d.intended = d.changes.result();
             d.sufficient = true;
             db.saveDraft(s.id, 5, d);
+            QCOMPARE(db.pendingDrafts(s.id).size(), 1);
+            QCOMPARE(db.pendingDrafts(s.id).first().position, 1);
             db.observeTags("a", {"solo", "custom_tag"}, true);
             db.cacheTags("a", {{"smile", 0, 100, false, "smiling"}});
             db.saveSearchCache("a", "sm", {{"smile", 0, 100, false, "smiling"}});
@@ -76,6 +78,7 @@ class DatabaseTests : public QObject {
             QCOMPARE(s.current, 2);
             QCOMPARE(db.doneCount(s.id), 1);
             QVERIFY(!db.draft(s.id, 5));
+            QVERIFY(db.pendingDrafts(s.id).isEmpty());
             QCOMPARE(db.history("a").first().outcome, QString("completed"));
             QVERIFY(db.history("b").isEmpty());
             db.markQueue(s.id, 8, "skipped", "missing");
