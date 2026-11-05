@@ -25,6 +25,10 @@ add_library(booru_core
     src/providers/DanbooruProvider.h
     src/providers/ShimmieProvider.cpp
     src/providers/ShimmieProvider.h
+    src/database/Database.cpp
+    src/database/Database.h
+    src/sessions/Session.h
+    src/sessions/Session.cpp
 )
 target_include_directories(booru_core PUBLIC src)
 target_link_libraries(booru_core PUBLIC Qt6::Core Qt6::Network Qt6::Sql)
@@ -59,6 +63,9 @@ if(BUILD_TESTING)
     add_executable(test_providers tests/test_providers.cpp)
     target_link_libraries(test_providers PRIVATE booru_core Qt6::Test)
     add_test(NAME providers COMMAND test_providers)
+    add_executable(test_database tests/test_database.cpp)
+    target_link_libraries(test_database PRIVATE booru_core Qt6::Test)
+    add_test(NAME database COMMAND test_database)
     add_executable(test_widgets tests/test_widgets.cpp)
     target_link_libraries(test_widgets PRIVATE booru_widgets Qt6::Test)
     add_test(NAME widgets COMMAND test_widgets -platform offscreen)
