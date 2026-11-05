@@ -26,7 +26,7 @@ ctest --test-dir build --output-on-failure
 
 For release, use `-B build-release -DCMAKE_BUILD_TYPE=Release` and build that directory. Optional install: `cmake --install build-release --prefix ~/.local`.
 
-For distcc, add `-DCMAKE_CXX_COMPILER_LAUNCHER=distcc` to the configure command, then build with `--parallel "$(distcc -j)"`. Workers need a compatible compiler and a running `distccd` service.
+For distcc, configure with `-DBOORUTAGGER_USE_DISTCC=ON`, then build with `--parallel "$(distcc -j)"`. The launcher strips CMake's absolute compiler path before forwarding it. Workers need a compatible compiler and a running `distccd` service.
 
 ## Usage
 

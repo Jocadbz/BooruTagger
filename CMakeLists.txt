@@ -7,6 +7,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
+option(BOORUTAGGER_USE_DISTCC "Build C++ sources with distcc" OFF)
+if(BOORUTAGGER_USE_DISTCC)
+    find_program(BOORUTAGGER_DISTCC distcc REQUIRED)
+    find_program(BOORUTAGGER_SH sh REQUIRED)
+    set(CMAKE_CXX_COMPILER_LAUNCHER
+        "${BOORUTAGGER_SH};${CMAKE_CURRENT_SOURCE_DIR}/cmake/distcc-launcher.sh;${BOORUTAGGER_DISTCC}")
+endif()
+
 find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets Network Sql OpenGL OpenGLWidgets Concurrent Test)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv)
@@ -69,6 +77,11 @@ endforeach()
 
 include(CTest)
 if(BUILD_TESTING)
+    if(UNIX)
+        add_test(NAME distcc_launcher COMMAND ${CMAKE_COMMAND}
+            -DLAUNCHER=${CMAKE_CURRENT_SOURCE_DIR}/cmake/distcc-launcher.sh
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_distcc_launcher.cmake)
+    endif()
     add_executable(test_tags tests/test_tags.cpp)
     target_link_libraries(test_tags PRIVATE booru_core Qt6::Test)
     add_test(NAME tags COMMAND test_tags)
