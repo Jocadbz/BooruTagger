@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "TagEditor.h"
+#include "media/MediaViewer.h"
 
 #include <QCloseEvent>
 #include <QLabel>
@@ -15,11 +16,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     setWindowTitle(tr("BooruTagger"));
     resize(1180, 780);
     auto *splitter = new QSplitter(this);
-    auto *empty = new QLabel(tr("Configure an instance and start a tagging session."), splitter);
-    empty->setAlignment(Qt::AlignCenter);
+    auto *media = new MediaViewer(splitter);
     m_editor = new TagEditor(splitter);
     m_editor->setEnabled(false);
-    splitter->addWidget(empty);
+    splitter->addWidget(media);
     splitter->addWidget(m_editor);
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 1);
@@ -30,7 +30,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     edit->addAction(tr("&Undo tag edit"), QKeySequence::Undo, m_editor, &TagEditor::undo);
     edit->addAction(tr("&Redo tag edit"), QKeySequence("Ctrl+Shift+Z"), m_editor, &TagEditor::redo);
     edit->addAction(tr("Focus tag &input"), QKeySequence("Ctrl+K"), m_editor, &TagEditor::focusInput);
-    menuBar()->addMenu(tr("&View"));
+    auto *view = menuBar()->addMenu(tr("&View"));
+    view->addAction(tr("&Fit image"), media, &MediaViewer::fit);
+    view->addAction(tr("&Actual size"), media, &MediaViewer::actualSize);
     menuBar()->addMenu(tr("&Session"));
     menuBar()->addMenu(tr("&Settings"));
     menuBar()->addMenu(tr("&Help"));
