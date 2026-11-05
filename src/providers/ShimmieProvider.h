@@ -23,9 +23,17 @@ class ShimmieProvider : public BooruProvider {
     void graphql(const QString &query, const QJsonObject &variables, Callback<QJsonObject> callback,
                  bool login = false);
     void detectSchema(std::function<void()> callback);
+    void fetchSinglePost(qint64 id, const QString &argument, Callback<Post> callback);
+    bool supportsSearch() const;
+    static bool isMissingPostsField(const Error &error);
     QJsonObject operation(const QString &field, const QJsonObject &arguments, const QString &selection,
                           bool mutation) const;
     QHash<QString, QString> m_argumentTypes;
+    QSet<QString> m_queryFields;
+    QSet<QString> m_mutationFields;
+    QString m_singlePostIdArgument;
+    bool m_schemaKnown = false;
+    bool m_schemaRetryDone = false;
     bool m_schemaChecked = false;
 };
 

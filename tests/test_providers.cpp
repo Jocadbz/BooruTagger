@@ -158,6 +158,111 @@ class ProviderTests : public QObject {
         QVERIFY(!body.value("query").toString().contains("secret"));
         QCOMPARE(body.value("variables").toObject().value("password").toString(), QString("secret"));
     }
+    void shimmieSinglePostSchema()
+    {
+        HttpFixture server;
+        server.handler = [](const FixtureRequest &request) -> FixtureResponse {
+            const auto query = request.json().value("query").toString();
+            if (query.contains("__schema"))
+                return {
+                    200,
+                    R"({"data":{"__schema":{"queryType":{"fields":[{"name":"post","args":[{"name":"id","type":{"kind":"NON_NULL","ofType":{"kind":"SCALAR","name":"Int"}}}]}]},"mutationType":{"fields":[{"name":"login","args":[{"name":"username","type":{"kind":"SCALAR","name":"String"}},{"name":"password","type":{"kind":"SCALAR","name":"String"}}]}]}}}})",
+                    {},
+                    false};
+            if (query.contains("login("))
+                return {200, R"({"data":{"login":{"user":{"name":"tester"},"session":"singular-token"}}})", {}, false};
+            if (query.contains("post("))
+                return {
+                    200,
+                    R"({"data":{"post":{"id":987,"post_id":123,"tags":["solo","Custom:Tag"],"ext":"png","image_link":"media/123.png"}}})",
+                    {},
+                    false};
+            if (query.contains("posts("))
+                return {
+                    200,
+                    "{\"errors\":[{\"message\":\"Cannot query field \\\"posts\\\" on type \\\"Query\\\". Did you mean \\\"post\\\"?\"}]}",
+                    {},
+                    false};
+            return {200, R"({"data":{}})", {}, false};
+        };
+        ShimmieProvider provider(
+            {"shm-singular", "test", ProviderKind::Shimmie, server.base("/gallery/"), "tester", true});
+        std::optional<Result<AuthInfo>> auth;
+        provider.authenticate("password", [&](auto result) { auth = result; });
+        QTRY_VERIFY(auth.has_value());
+        QVERIFY(*auth);
+        std::optional<Result<Post>> post;
+        provider.fetchPost(123, [&](auto result) { post = result; });
+        QTRY_VERIFY(post.has_value());
+        QVERIFY(*post);
+        QCOMPARE(post->value->id, 123);
+        QCOMPARE(post->value->tags, QStringList({"solo", "Custom:Tag"}));
+        QCOMPARE(post->value->mediaUrl.toString(),
+                 QString("http://127.0.0.1:%1/gallery/media/123.png").arg(server.serverPort()));
+        QCOMPARE(server.requests.size(), 3);
+        const auto singleQuery = server.requests.last().json();
+        QVERIFY(singleQuery.value("query").toString().contains("$id:Int!"));
+        QVERIFY(singleQuery.value("query").toString().contains("post(id:$id)"));
+        QVERIFY(!singleQuery.value("query").toString().contains("posts("));
+        QCOMPARE(singleQuery.value("variables").toObject().value("id").toInt(), 123);
+
+        const auto requestCount = server.requests.size();
+        std::optional<Result<SearchPage>> search;
+        provider.searchPosts({"tagme", 20, {}, 0}, [&](auto result) { search = result; });
+        QTRY_VERIFY(search.has_value());
+        QVERIFY(!*search);
+        QCOMPARE(search->error.kind, ErrorKind::InvalidData);
+        QVERIFY(search->error.message.contains("single-post GraphQL query"));
+        QCOMPARE(server.requests.size(), requestCount);
+    }
+    void shimmieRecoversFromUnsupportedPostsError()
+    {
+        HttpFixture server;
+        int schemaRequests = 0;
+        server.handler = [&schemaRequests](const FixtureRequest &request) -> FixtureResponse {
+            const auto query = request.json().value("query").toString();
+            if (query.contains("__schema")) {
+                ++schemaRequests;
+                if (schemaRequests == 1)
+                    return {200, R"({"errors":[{"message":"introspection was not available yet"}]})", {}, false};
+                return {
+                    200,
+                    R"({"data":{"__schema":{"queryType":{"fields":[{"name":"post","args":[{"name":"post_id","type":{"kind":"SCALAR","name":"Int"}}]}]},"mutationType":{"fields":[{"name":"login","args":[{"name":"username","type":{"kind":"SCALAR","name":"String"}},{"name":"password","type":{"kind":"SCALAR","name":"String"}}]}]}}}})",
+                    {},
+                    false};
+            }
+            if (query.contains("login("))
+                return {200, R"({"data":{"login":{"user":{"name":"tester"},"session":"recovered-token"}}})", {}, false};
+            if (query.contains("posts("))
+                return {
+                    200,
+                    "{\"errors\":[{\"message\":\"Cannot query field \\\"posts\\\" on type \\\"Query\\\". Did you mean \\\"post\\\"?\"}]}",
+                    {},
+                    false};
+            if (query.contains("post(post_id:$post_id)"))
+                return {
+                    200,
+                    R"({"data":{"post":{"id":999,"post_id":123,"tags":"solo tagme","ext":"jpg","image_link":"/image/123"}}})",
+                    {},
+                    false};
+            return {200, R"({"data":{}})", {}, false};
+        };
+        ShimmieProvider provider({"shm-recover", "test", ProviderKind::Shimmie, server.base(), "tester", true});
+        std::optional<Result<AuthInfo>> auth;
+        provider.authenticate("password", [&](auto result) { auth = result; });
+        QTRY_VERIFY(auth.has_value());
+        QVERIFY(*auth);
+        QCOMPARE(schemaRequests, 1);
+        std::optional<Result<Post>> post;
+        provider.fetchPost(123, [&](auto result) { post = result; });
+        QTRY_VERIFY(post.has_value());
+        QVERIFY(*post);
+        QCOMPARE(post->value->id, 123);
+        QCOMPARE(schemaRequests, 2);
+        QCOMPARE(server.requests.size(), 5);
+        QVERIFY(server.requests.at(2).json().value("query").toString().contains("posts("));
+        QVERIFY(server.requests.at(4).json().value("query").toString().contains("post(post_id:$post_id)"));
+    }
     void networkErrorsAndIsolation()
     {
         HttpFixture one;

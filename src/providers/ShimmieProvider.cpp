@@ -102,10 +102,18 @@ void ShimmieProvider::detectSchema(std::function<void()> callback)
                 if (result) {
                     const auto schema = result.value->value("__schema").toObject();
                     for (const auto &root : {QStringLiteral("queryType"), QStringLiteral("mutationType")}) {
+                        const auto rootObject = schema.value(root).toObject();
+                        if (!rootObject.value("fields").isArray())
+                            continue;
+                        m_schemaKnown = true;
                         for (const auto &fieldValue : schema.value(root).toObject().value("fields").toArray()) {
                             const auto field = fieldValue.toObject();
                             const auto name = field.value("name").toString();
-                            if (name != "login" && name != "posts" && name != "update_post_metadata")
+                            if (root == "queryType")
+                                m_queryFields.insert(name);
+                            else
+                                m_mutationFields.insert(name);
+                            if (name != "login" && name != "posts" && name != "post" && name != "update_post_metadata")
                                 continue;
                             for (const auto &argValue : field.value("args").toArray()) {
                                 const auto arg = argValue.toObject();
@@ -115,10 +123,28 @@ void ShimmieProvider::detectSchema(std::function<void()> callback)
                             }
                         }
                     }
+                    if (m_argumentTypes.contains("post/post_id"))
+                        m_singlePostIdArgument = QStringLiteral("post_id");
+                    else if (m_argumentTypes.contains("post/id"))
+                        m_singlePostIdArgument = QStringLiteral("id");
                 }
                 emit status(tr("Shimmie autocomplete uses this instance's locally observed tags."));
                 callback();
             });
+}
+
+bool ShimmieProvider::supportsSearch() const
+{
+    if (!m_schemaKnown)
+        return true;
+    return m_queryFields.contains("posts") && m_argumentTypes.contains("posts/limit") &&
+           m_argumentTypes.contains("posts/offset") && m_argumentTypes.contains("posts/terms");
+}
+
+bool ShimmieProvider::isMissingPostsField(const Error &error)
+{
+    const auto message = error.message.toLower();
+    return message.contains("cannot query field \"posts\"") || message.contains("cannot query field 'posts'");
 }
 
 QJsonObject ShimmieProvider::operation(const QString &field, const QJsonObject &arguments, const QString &selection,
@@ -149,6 +175,12 @@ void ShimmieProvider::authenticate(const QString &secret, Callback<AuthInfo> cal
     m_authenticated = false;
     m_http.clearAuthentication();
     detectSchema([this, secret, callback] {
+        if (m_schemaKnown && (!m_mutationFields.contains("login") || !m_argumentTypes.contains("login/username") ||
+                              !m_argumentTypes.contains("login/password"))) {
+            callback(Result<AuthInfo>::failure(
+                {ErrorKind::Authentication, tr("This Shimmie schema does not expose the documented login mutation.")}));
+            return;
+        }
         const auto request = operation("login", {{"username", instance().username}, {"password", secret}},
                                        "user { name } session", true);
         graphql(
@@ -207,6 +239,30 @@ Result<Post> ShimmieProvider::parsePost(const QJsonObject &object, const QUrl &b
 
 void ShimmieProvider::searchPosts(const SearchRequest &request, Callback<SearchPage> callback)
 {
+    if (m_schemaKnown && !supportsSearch()) {
+        static const QRegularExpression postIdQuery(QStringLiteral("^\\s*id\\s*=\\s*(\\d+)\\s*$"),
+                                                    QRegularExpression::CaseInsensitiveOption);
+        const auto match = postIdQuery.match(request.query);
+        if (match.hasMatch() && !m_singlePostIdArgument.isEmpty()) {
+            fetchSinglePost(match.captured(1).toLongLong(), m_singlePostIdArgument, [callback](Result<Post> result) {
+                if (!result) {
+                    callback(Result<SearchPage>::failure(result.error));
+                    return;
+                }
+                callback(Result<SearchPage>::success({{*result.value}, {}, false}));
+            });
+            return;
+        }
+        const auto message =
+            m_queryFields.contains("post")
+                ? tr("This Shimmie schema exposes only the single-post GraphQL query, not a tag-search query. Exact-ID "
+                     "sessions and ID ranges are supported; tag-search sessions require a GraphQL 'posts' field with "
+                     "limit, offset, and terms arguments.")
+                : tr("This Shimmie schema has no compatible post-search query. Enable a GraphQL 'posts' field with "
+                     "limit, offset, and terms arguments, or use a single-ID session if the schema exposes 'post'.");
+        callback(Result<SearchPage>::failure({ErrorKind::InvalidData, message}));
+        return;
+    }
     const int limit = qBound(1, request.limit, 100);
     const auto terms = request.query.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
     const auto operationRequest =
@@ -214,8 +270,28 @@ void ShimmieProvider::searchPosts(const SearchRequest &request, Callback<SearchP
                   "id post_id tags source hash ext image_link", false);
     graphql(
         operationRequest.value("query").toString(), operationRequest.value("variables").toObject(),
-        [this, limit, callback](Result<QJsonObject> result) {
+        [this, limit, request, callback](Result<QJsonObject> result) {
             if (!result) {
+                if (isMissingPostsField(result.error) && !m_schemaKnown && !m_schemaRetryDone) {
+                    m_schemaRetryDone = true;
+                    m_schemaChecked = false;
+                    detectSchema([this, request, callback] {
+                        if (m_schemaKnown) {
+                            searchPosts(request, callback);
+                        } else {
+                            callback(Result<SearchPage>::failure(
+                                {ErrorKind::InvalidData, tr("The server rejected the 'posts' query and did not expose "
+                                                            "an introspectable schema. "
+                                                            "Enable GraphQL schema introspection, or use a server with "
+                                                            "the Shimmie posts(limit, offset, terms) query.")}));
+                        }
+                    });
+                    return;
+                }
+                if (isMissingPostsField(result.error))
+                    result.error.message =
+                        tr("The server rejected GraphQL 'posts'. Its schema changed or the search field is "
+                           "unavailable. Use a single-ID or ID-range session if 'post' is available.");
                 callback(Result<SearchPage>::failure(result.error));
                 return;
             }
@@ -240,6 +316,16 @@ void ShimmieProvider::searchPosts(const SearchRequest &request, Callback<SearchP
 
 void ShimmieProvider::fetchPost(qint64 id, Callback<Post> callback)
 {
+    if (m_schemaKnown && !supportsSearch()) {
+        if (m_singlePostIdArgument.isEmpty()) {
+            callback(Result<Post>::failure(
+                {ErrorKind::InvalidData,
+                 tr("This Shimmie schema has no compatible post-search query or single-post ID field.")}));
+            return;
+        }
+        fetchSinglePost(id, m_singlePostIdArgument, callback);
+        return;
+    }
     searchPosts({QStringLiteral("id=%1").arg(id), 2, {}, 0}, [id, callback](Result<SearchPage> page) {
         if (!page) {
             callback(Result<Post>::failure(page.error));
@@ -256,6 +342,29 @@ void ShimmieProvider::fetchPost(qint64 id, Callback<Post> callback)
     });
 }
 
+void ShimmieProvider::fetchSinglePost(qint64 id, const QString &argumentName, Callback<Post> callback)
+{
+    const auto request = operation("post", {{argumentName, id}}, "id post_id tags source hash ext image_link", false);
+    graphql(request.value("query").toString(), request.value("variables").toObject(),
+            [this, id, callback](Result<QJsonObject> result) {
+                if (!result) {
+                    callback(Result<Post>::failure(result.error));
+                    return;
+                }
+                const auto value = result.value->value("post");
+                if (value.isNull() || !value.isObject()) {
+                    callback(Result<Post>::failure(
+                        {ErrorKind::Missing, tr("The Shimmie post is missing or inaccessible.")}));
+                    return;
+                }
+                auto post = parsePost(value.toObject(), instance().baseUrl);
+                if (post && post.value->id != id)
+                    post = Result<Post>::failure(
+                        {ErrorKind::InvalidData, tr("The Shimmie response contained a different post_id.")});
+                callback(post);
+            });
+}
+
 void ShimmieProvider::searchTags(const QString &, Callback<QList<TagSuggestion>> callback)
 {
     QMetaObject::invokeMethod(
@@ -266,6 +375,11 @@ void ShimmieProvider::updateTags(qint64 id, const QSet<QString> &tags, const QSe
 {
     if (!m_authenticated) {
         callback(Result<bool>::failure({ErrorKind::Authentication, tr("Sign in before saving tags.")}));
+        return;
+    }
+    if (m_schemaKnown && !m_mutationFields.contains("update_post_metadata")) {
+        callback(Result<bool>::failure(
+            {ErrorKind::Permission, tr("This Shimmie schema does not expose update_post_metadata.")}));
         return;
     }
     const QJsonArray metadata{QJsonObject{{"key", "tags"}, {"value", sortedTags(tags).join(' ')}}};
