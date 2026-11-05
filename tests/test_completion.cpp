@@ -1,13 +1,14 @@
-#include "tagging/Completion.h"
 #include "settings/Credentials.h"
+#include "tagging/Completion.h"
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <algorithm>
 
 using namespace bt;
 
 class CompletionProvider : public BooruProvider {
-public:
+  public:
     using BooruProvider::BooruProvider;
     QList<QString> prefixes;
     QList<Callback<QList<TagSuggestion>>> callbacks;
@@ -16,19 +17,23 @@ public:
     void searchPosts(const SearchRequest &, Callback<SearchPage>) override {}
     void updateTags(qint64, const QSet<QString> &, const QSet<QString> &, Callback<bool>) override {}
     bool remoteAutocomplete() const override { return true; }
-    void searchTags(const QString &prefix, Callback<QList<TagSuggestion>> callback) override {
-        prefixes.append(prefix); callbacks.append(callback);
+    void searchTags(const QString &prefix, Callback<QList<TagSuggestion>> callback) override
+    {
+        prefixes.append(prefix);
+        callbacks.append(callback);
     }
 };
 
 class CompletionTests : public QObject {
     Q_OBJECT
-private slots:
-    void cachedAndStaleResults() {
+  private slots:
+    void cachedAndStaleResults()
+    {
         Database db(":memory:");
         Instance a{"a", "one", ProviderKind::Danbooru, QUrl("https://a.test"), "alice", false};
         Instance b{"b", "two", ProviderKind::Shimmie, QUrl("https://b.test"), "bob", false};
-        db.saveInstance(a); db.saveInstance(b);
+        db.saveInstance(a);
+        db.saveInstance(b);
         db.observeTags("a", {"solo", "smile", "smiling"});
         db.observeTags("b", {"Custom:Tag"});
         CompletionProvider provider(a), other(b);
@@ -59,7 +64,8 @@ private slots:
         completion.setProvider(nullptr);
         QVERIFY(last.isEmpty());
     }
-    void sessionOnlyCredentials() {
+    void sessionOnlyCredentials()
+    {
         QTemporaryDir dir;
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir.path());

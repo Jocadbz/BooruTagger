@@ -14,8 +14,11 @@
 #include <QComboBox>
 #include <QDesktopServices>
 #include <QDialogButtonBox>
+#include <QFileDialog>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -24,6 +27,7 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QSaveFile>
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QSplitter>
@@ -63,7 +67,10 @@ void applyAppearance(bool dark)
 
 MainWindow::MainWindow(QWidget *parent, const QString &databasePath) : QMainWindow(parent)
 {
-    m_db = std::make_unique<Database>(databasePath.isEmpty() ? QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/boorutagger.sqlite" : databasePath);
+    m_db = std::make_unique<Database>(databasePath.isEmpty()
+                                          ? QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) +
+                                                "/boorutagger.sqlite"
+                                          : databasePath);
     m_engine = new SessionEngine(m_db.get(), this);
     m_credentials = new Credentials(this);
     m_completion = new Completion(m_db.get(), this);
@@ -78,9 +85,10 @@ MainWindow::MainWindow(QWidget *parent, const QString &databasePath) : QMainWind
         guarded([&] {
             const auto id = QSettings().value("last_session").toString();
             const auto session = m_db->session(id);
-            if (session && (session->status != "finished" || m_db->hasPendingDrafts(session->id))
-                && QMessageBox::question(this, tr("Resume session"), tr("Resume “%1”? Your pending edits are stored locally.").arg(session->name),
-                                         QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes) == QMessageBox::Yes) {
+            if (session && (session->status != "finished" || m_db->hasPendingDrafts(session->id)) &&
+                QMessageBox::question(this, tr("Resume session"),
+                                      tr("Resume “%1”? Your pending edits are stored locally.").arg(session->name),
+                                      QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes) == QMessageBox::Yes) {
                 selectInstance(session->instanceId);
                 openSession(id);
             }
@@ -103,41 +111,73 @@ void MainWindow::buildUi()
     setWindowTitle("BooruTagger");
     resize(1240, 820);
     auto *file = menuBar()->addMenu(tr("&File"));
-    m_addInstance = file->addAction(tr("Add &instance / account…"), QKeySequence("Ctrl+Shift+I"), this, &MainWindow::addInstance);
+    m_addInstance =
+        file->addAction(tr("Add &instance / account…"), QKeySequence("Ctrl+Shift+I"), this, &MainWindow::addInstance);
     m_signIn = file->addAction(tr("&Sign in…"), QKeySequence("Ctrl+L"), this, [this] { signIn(); });
-    m_openBrowser = file->addAction(tr("Open post in &browser"), QKeySequence("Ctrl+B"), this, [this] { openPost(m_engine->post().id); });
+    m_openBrowser = file->addAction(tr("Open post in &browser"), QKeySequence("Ctrl+B"), this,
+                                    [this] { openPost(m_engine->post().id); });
     file->addSeparator();
     file->addAction(tr("&Quit"), QKeySequence::Quit, this, &QWidget::close);
     auto *editMenu = menuBar()->addMenu(tr("&Edit"));
     auto *view = menuBar()->addMenu(tr("&View"));
     auto *sessions = menuBar()->addMenu(tr("&Session"));
     m_newSession = sessions->addAction(tr("&New session…"), QKeySequence::New, this, &MainWindow::newSession);
-    m_previous = sessions->addAction(tr("&Previous"), QKeySequence("Alt+Left"), this, [this] { flushEdit(); m_engine->previous(); });
-    m_skip = sessions->addAction(tr("S&kip / next"), QKeySequence("Alt+Right"), this, [this] { flushEdit(); m_engine->skip(); });
-    m_save = sessions->addAction(tr("&Save"), QKeySequence::Save, this, [this] { flushEdit(); m_engine->save(false); });
-    m_saveNext = sessions->addAction(tr("Save && &Next"), this, [this] { flushEdit(); m_engine->save(true); });
+    m_previous = sessions->addAction(tr("&Previous"), QKeySequence("Alt+Left"), this, [this] {
+        flushEdit();
+        m_engine->previous();
+    });
+    m_skip = sessions->addAction(tr("S&kip / next"), QKeySequence("Alt+Right"), this, [this] {
+        flushEdit();
+        m_engine->skip();
+    });
+    m_save = sessions->addAction(tr("&Save"), QKeySequence::Save, this, [this] {
+        flushEdit();
+        m_engine->save(false);
+    });
+    m_saveNext = sessions->addAction(tr("Save && &Next"), this, [this] {
+        flushEdit();
+        m_engine->save(true);
+    });
     m_saveNext->setShortcuts({QKeySequence("Ctrl+Return"), QKeySequence("Ctrl+Enter")});
     m_saveNext->setObjectName("saveNextAction");
     m_save->setObjectName("saveAction");
-    m_retry = sessions->addAction(tr("&Reload / retry discovery"), QKeySequence::Refresh, this, [this] { flushEdit(); m_engine->reload(); });
+    m_retry = sessions->addAction(tr("&Reload / retry discovery"), QKeySequence::Refresh, this, [this] {
+        flushEdit();
+        m_engine->reload();
+    });
     m_jump = sessions->addAction(tr("&Jump to queue position…"), QKeySequence("Ctrl+J"), this, &MainWindow::jump);
-    m_useQueue = sessions->addAction(tr("Stop discovery and use stored &IDs"), this, [this] { m_engine->useDiscoveredQueue(); });
+    m_useQueue =
+        sessions->addAction(tr("Stop discovery and use stored &IDs"), this, [this] { m_engine->useDiscoveredQueue(); });
     sessions->addSeparator();
     sessions->addAction(tr("Local tagging &history…"), this, &MainWindow::history);
+    sessions->addAction(tr("Export draft for local &recovery…"), this, [this] { exportDraft(); });
     auto *settings = menuBar()->addMenu(tr("Se&ttings"));
     auto *dark = settings->addAction(tr("&Dark appearance"));
     dark->setCheckable(true);
     dark->setChecked(QSettings().value("appearance/dark", true).toBool());
-    connect(dark, &QAction::toggled, this, [](bool checked) { QSettings().setValue("appearance/dark", checked); applyAppearance(checked); });
+    connect(dark, &QAction::toggled, this, [](bool checked) {
+        QSettings().setValue("appearance/dark", checked);
+        applyAppearance(checked);
+    });
     auto *help = menuBar()->addMenu(tr("&Help"));
     help->addAction(tr("&Keyboard shortcuts"), this, [this] {
-        QMessageBox::information(this, tr("Keyboard shortcuts"), tr(
-            "Ctrl+Enter   Save & Next\nCtrl+S   Save without advancing\nAlt+Left   Previous post\nAlt+Right   Skip (draft kept, nothing submitted)\n"
-            "Ctrl+K   Focus tag input\nEnter / Tab   Accept suggestion or add typed tags\nEscape   Close suggestions\nDelete   Remove selected tags\n"
-            "Ctrl+E   Edit full tag list\nCtrl+Z / Ctrl+Shift+Z   Undo / redo tags\nAlt+T   Confirm sufficiently tagged\nCtrl+J   Jump in queue\n"
-            "Ctrl+B   Open post in browser\nF5   Reload / retry discovery\n\nWith media focused:\nF   Fit image\nSpace   Play / pause\nLeft / Right   Seek 5 seconds\n. / ,   Step forward / backward"));
+        QMessageBox::information(
+            this, tr("Keyboard shortcuts"),
+            tr("Ctrl+Enter   Save & Next\nCtrl+S   Save without advancing\nAlt+Left   Previous post\nAlt+Right   Skip "
+               "(draft kept, nothing submitted)\n"
+               "Ctrl+K   Focus tag input\nEnter / Tab   Accept suggestion or add typed tags\nEscape   Close "
+               "suggestions\nDelete   Remove selected tags\n"
+               "Ctrl+E   Edit full tag list\nCtrl+Z / Ctrl+Shift+Z   Undo / redo tags\nAlt+T   Confirm sufficiently "
+               "tagged\nCtrl+J   Jump in queue\n"
+               "Ctrl+B   Open post in browser\nF5   Reload / retry discovery\n\nWith media focused:\nF   Fit "
+               "image\nSpace   Play / pause\nLeft / Right   Seek 5 seconds\n. / ,   Step forward / backward"));
     });
-    help->addAction(tr("&About"), this, [this] { QMessageBox::about(this, "BooruTagger", tr("BooruTagger %1\nA native tagging workstation for Danbooru and Shimmie2.\nNo telemetry or automatic tagging.").arg(BOORUTAGGER_VERSION)); });
+    help->addAction(tr("&About"), this, [this] {
+        QMessageBox::about(this, "BooruTagger",
+                           tr("BooruTagger %1\nA native tagging workstation for Danbooru and Shimmie2.\nNo telemetry "
+                              "or automatic tagging.")
+                               .arg(BOORUTAGGER_VERSION));
+    });
 
     auto *toolbar = addToolBar(tr("Instance and session"));
     toolbar->setObjectName("sessionToolbar");
@@ -156,7 +196,8 @@ void MainWindow::buildUi()
     m_sessions->setObjectName("sessionSelector");
     toolbar->addWidget(m_sessions);
     toolbar->addAction(m_newSession);
-    connect(m_instances, &QComboBox::activated, this, [this] { selectInstance(m_instances->currentData().toString()); });
+    connect(m_instances, &QComboBox::activated, this,
+            [this] { selectInstance(m_instances->currentData().toString()); });
     connect(m_sessions, &QComboBox::activated, this, [this] { openSession(m_sessions->currentData().toString()); });
 
     auto *central = new QWidget(this);
@@ -169,6 +210,11 @@ void MainWindow::buildUi()
     m_error->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_error->hide();
     layout->addWidget(m_error);
+    m_notice = new QLabel(central);
+    m_notice->setTextFormat(Qt::PlainText);
+    m_notice->setWordWrap(true);
+    m_notice->hide();
+    layout->addWidget(m_notice);
     m_info = new QLabel(tr("Choose an instance, sign in, and create or resume a session."), central);
     m_info->setTextFormat(Qt::PlainText);
     layout->addWidget(m_info);
@@ -181,7 +227,8 @@ void MainWindow::buildUi()
     tagLayout->addWidget(m_editor, 1);
     m_sufficient = new QCheckBox(tr("Sufficiently &tagged — remove tagme on save"), tagPanel);
     m_sufficient->setObjectName("sufficientlyTagged");
-    m_sufficient->setToolTip(tr("Explicitly confirms this post is finished. Unchecked keeps tagme. Skip never submits any edit."));
+    m_sufficient->setToolTip(
+        tr("Explicitly confirms this post is finished. Unchecked keeps tagme. Skip never submits any edit."));
     tagLayout->addWidget(m_sufficient);
     m_splitter->addWidget(m_media);
     m_splitter->addWidget(tagPanel);
@@ -216,9 +263,12 @@ void MainWindow::buildUi()
     statusBar()->addPermanentWidget(m_state);
     statusBar()->showMessage(tr("Ready"));
     m_tagActions.append(editMenu->addAction(tr("&Undo tag edit"), QKeySequence::Undo, m_editor, &TagEditor::undo));
-    m_tagActions.append(editMenu->addAction(tr("&Redo tag edit"), QKeySequence("Ctrl+Shift+Z"), m_editor, &TagEditor::redo));
-    m_tagActions.append(editMenu->addAction(tr("Focus tag &input"), QKeySequence("Ctrl+K"), m_editor, &TagEditor::focusInput));
-    m_tagActions.append(editMenu->addAction(tr("Edit &full tag list…"), QKeySequence("Ctrl+E"), m_editor, &TagEditor::replaceAll));
+    m_tagActions.append(
+        editMenu->addAction(tr("&Redo tag edit"), QKeySequence("Ctrl+Shift+Z"), m_editor, &TagEditor::redo));
+    m_tagActions.append(
+        editMenu->addAction(tr("Focus tag &input"), QKeySequence("Ctrl+K"), m_editor, &TagEditor::focusInput));
+    m_tagActions.append(
+        editMenu->addAction(tr("Edit &full tag list…"), QKeySequence("Ctrl+E"), m_editor, &TagEditor::replaceAll));
     m_presets = editMenu->addMenu(tr("Tag &presets"));
     connect(m_presets, &QMenu::aboutToShow, this, &MainWindow::rebuildPresets);
     view->addAction(tr("&Fit image (F in viewer)"), m_media, &MediaViewer::fit);
@@ -227,25 +277,26 @@ void MainWindow::buildUi()
 
 void MainWindow::connectEngine()
 {
-    connect(m_engine, &SessionEngine::postReady, this, [this](const Post &post, const TagChanges &changes, bool sufficient) {
-        m_syncing = true;
-        m_completion->setProvider(m_provider);
-        m_completion->setExcluded(changes.result());
-        m_editor->load(changes, m_provider->instance().kind);
-        m_sufficient->setChecked(sufficient);
-        m_sufficient->setVisible(m_engine->session().removeTagme && changes.original.contains("tagme"));
-        m_editor->setRemoveTagmePreview(sufficient && m_engine->session().removeTagme);
-        m_syncing = false;
-        QString info = QStringLiteral("#%1 · %2").arg(post.id).arg(post.extension.toUpper());
-        if (post.dimensions.isValid())
-            info += QStringLiteral(" · %1 × %2").arg(post.dimensions.width()).arg(post.dimensions.height());
-        m_info->setText(info + " · " + m_provider->instance().name);
-        m_error->hide();
-        m_media->load(post, m_provider->http());
-        setWindowTitle(QStringLiteral("#%1 — %2 — BooruTagger").arg(post.id).arg(m_engine->session().name));
-        m_editor->focusInput();
-        updateActions();
-    });
+    connect(m_engine, &SessionEngine::postReady, this,
+            [this](const Post &post, const TagChanges &changes, bool sufficient) {
+                m_syncing = true;
+                m_completion->setProvider(m_provider);
+                m_completion->setExcluded(changes.result());
+                m_editor->load(changes, m_provider->instance().kind);
+                m_sufficient->setChecked(sufficient);
+                m_sufficient->setVisible(m_engine->session().removeTagme && changes.original.contains("tagme"));
+                m_editor->setRemoveTagmePreview(sufficient && m_engine->session().removeTagme);
+                m_syncing = false;
+                QString info = QStringLiteral("#%1 · %2").arg(post.id).arg(post.extension.toUpper());
+                if (!post.dimensions.isEmpty())
+                    info += QStringLiteral(" · %1 × %2").arg(post.dimensions.width()).arg(post.dimensions.height());
+                m_info->setText(info + " · " + m_provider->instance().name);
+                m_error->hide();
+                m_media->load(post, m_provider->http());
+                setWindowTitle(QStringLiteral("#%1 — %2 — BooruTagger").arg(post.id).arg(m_engine->session().name));
+                m_editor->focusInput();
+                updateActions();
+            });
     connect(m_editor, &TagEditor::changed, this, [this] {
         if (m_syncing)
             return;
@@ -260,10 +311,20 @@ void MainWindow::connectEngine()
     });
     connect(m_editor, &TagEditor::prefixChanged, m_completion, &Completion::request);
     connect(m_completion, &Completion::suggestions, m_editor, &TagEditor::setSuggestions);
-    connect(m_completion, &Completion::warning, this, [this](const QString &message) { statusBar()->showMessage(message, 7000); });
-    connect(m_media, &MediaViewer::mediaError, this, [this](const QString &message) { showError({ErrorKind::Other, message}); });
-    connect(m_engine, &SessionEngine::previewAvailable, this, [this](const Post &post) { if (m_provider) m_media->prefetch(post, m_provider->http()); });
+    connect(m_completion, &Completion::warning, this,
+            [this](const QString &message) { statusBar()->showMessage(message, 7000); });
+    connect(m_media, &MediaViewer::mediaError, this,
+            [this](const QString &message) { showError({ErrorKind::Other, message}); });
+    connect(m_engine, &SessionEngine::previewAvailable, this, [this](const Post &post) {
+        if (m_provider)
+            m_media->prefetch(post, m_provider->http());
+    });
     connect(m_engine, &SessionEngine::sessionChanged, this, [this](const Session &session) {
+        if (m_noticeSession != session.id) {
+            m_noticeSession = session.id;
+            m_notice->clear();
+            m_notice->hide();
+        }
         if (!session.id.isEmpty())
             QSettings().setValue("last_session", session.id);
         refreshSessions();
@@ -274,7 +335,9 @@ void MainWindow::connectEngine()
         if (loading) {
             m_error->hide();
             m_media->clear(m_engine->building() ? tr("Discovering and storing post IDs…") : tr("Loading post…"));
-            m_info->setText(m_engine->building() ? tr("Building a stable queue. No edits are submitted during discovery.") : tr("Loading post…"));
+            m_info->setText(m_engine->building()
+                                ? tr("Building a stable queue. No edits are submitted during discovery.")
+                                : tr("Loading post…"));
         }
         updateActions();
         if (!loading && m_editor->isEnabled())
@@ -287,7 +350,16 @@ void MainWindow::connectEngine()
         m_state->setText(label);
         updateActions();
     });
-    connect(m_engine, &SessionEngine::status, this, [this](const QString &message) { statusBar()->showMessage(message); });
+    connect(m_engine, &SessionEngine::status, this,
+            [this](const QString &message) { statusBar()->showMessage(message); });
+    connect(m_engine, &SessionEngine::queueSummary, this, [this](const QString &message) {
+        m_notice->setText(message);
+        m_notice->show();
+    });
+    connect(m_engine, &SessionEngine::postSkipped, this, [this](qint64 id, const QString &reason) {
+        m_notice->setText(tr("Last skipped: #%1 · %2").arg(id).arg(reason));
+        m_notice->show();
+    });
     connect(m_engine, &SessionEngine::error, this, &MainWindow::showError);
     connect(m_engine, &SessionEngine::databaseError, this, [this](const QString &message) {
         m_error->setText(message);
@@ -306,32 +378,12 @@ void MainWindow::connectEngine()
         updateActions();
     });
     connect(m_engine, &SessionEngine::conflict, this, [this](const Post &, const TagChanges &, const TagMerge &merge) {
-        QMessageBox review(QMessageBox::Warning, tr("Concurrent tag changes"),
-            tr("Someone removed tags you still had in your snapshot. Review the merged result before writing.\n\nServer added: %1\nServer removed: %2\n\nProposed tags:\n%3")
-                .arg(sortedTags(merge.remoteAdded).join(' '), sortedTags(merge.remoteRemoved).join(' '), sortedTags(merge.tags).join(' ')),
-            QMessageBox::NoButton, this);
-        review.setTextFormat(Qt::PlainText);
-        auto *apply = review.addButton(tr("Apply merged tags"), QMessageBox::AcceptRole);
-        auto *cancel = review.addButton(QMessageBox::Cancel);
-        review.setDefaultButton(cancel);
-        review.exec();
-        m_engine->resolveConflict(review.clickedButton() == apply);
+        m_engine->resolveConflict(reviewMerge(merge, this));
     });
-    connect(m_engine, &SessionEngine::verificationMismatch, this, [this](const QSet<QString> &expected, const Post &actual, bool uncertain) {
-        QMessageBox review(QMessageBox::Warning, tr("Review server result"),
-            (uncertain ? tr("The write response was uncertain. No write will be repeated without your review.")
-                       : tr("The server returned different tags, possibly because of aliases, implications, permissions, or another edit."))
-            + tr("\n\nExpected:\n%1\n\nNow on the server:\n%2").arg(sortedTags(expected).join(' '), actual.tags.join(' ')),
-            QMessageBox::NoButton, this);
-        review.setTextFormat(Qt::PlainText);
-        auto *accept = review.addButton(tr("Accept server result as completed"), QMessageBox::AcceptRole);
-        auto *retry = review.addButton(tr("Keep draft; allow a new attempt"), QMessageBox::ActionRole);
-        auto *cancel = review.addButton(tr("Leave uncertain"), QMessageBox::RejectRole);
-        review.setDefaultButton(cancel);
-        review.exec();
-        m_engine->resolveVerification(review.clickedButton() == accept ? VerificationDecision::AcceptServer
-            : review.clickedButton() == retry ? VerificationDecision::AllowRetry : VerificationDecision::KeepUncertain);
-    });
+    connect(m_engine, &SessionEngine::verificationMismatch, this,
+            [this](const QSet<QString> &expected, const Post &actual, bool uncertain) {
+                m_engine->resolveVerification(reviewVerification(expected, actual, uncertain, this));
+            });
 }
 
 void MainWindow::guarded(const std::function<void()> &operation)
@@ -373,13 +425,15 @@ void MainWindow::selectInstance(const QString &id)
         const auto instance = m_db->instance(id);
         if (instance) {
             m_provider = createProvider(*instance, this);
-            connect(m_provider, &BooruProvider::status, this, [this](const QString &message) { statusBar()->showMessage(message); });
+            connect(m_provider, &BooruProvider::status, this,
+                    [this](const QString &message) { statusBar()->showMessage(message); });
             QSettings().setValue("last_instance", id);
         }
         const QSignalBlocker block(m_instances);
         m_instances->setCurrentIndex(m_instances->findData(id));
-        m_info->setText(instance ? tr("%1 · %2 — sign in, then create or choose a session.").arg(instance->name, instance->username)
-                                : tr("Add an instance / account to get started."));
+        m_info->setText(
+            instance ? tr("%1 · %2 — sign in, then create or choose a session.").arg(instance->name, instance->username)
+                     : tr("Add an instance / account to get started."));
         refreshSessions();
         updateActions();
     });
@@ -407,7 +461,10 @@ void MainWindow::addInstance()
     flushEdit();
     const auto instance = instanceDialog(this);
     if (instance)
-        guarded([&] { m_db->saveInstance(*instance); refreshInstances(instance->id); });
+        guarded([&] {
+            m_db->saveInstance(*instance);
+            refreshInstances(instance->id);
+        });
 }
 
 bool MainWindow::signIn()
@@ -419,7 +476,8 @@ bool MainWindow::signIn()
     const bool success = dialog.exec() == QDialog::Accepted;
     if (success) {
         m_error->hide();
-        statusBar()->showMessage(tr("Signed in to %1 as %2.").arg(m_provider->instance().name, m_provider->instance().username));
+        statusBar()->showMessage(
+            tr("Signed in to %1 as %2.").arg(m_provider->instance().name, m_provider->instance().username));
     }
     updateActions();
     return success;
@@ -497,7 +555,8 @@ void MainWindow::openPost(qint64 id)
 {
     if (!m_provider || id < 1)
         return;
-    const auto path = m_provider->instance().kind == ProviderKind::Danbooru ? QStringLiteral("posts/%1").arg(id) : QStringLiteral("post/view/%1").arg(id);
+    const auto path = m_provider->instance().kind == ProviderKind::Danbooru ? QStringLiteral("posts/%1").arg(id)
+                                                                            : QStringLiteral("post/view/%1").arg(id);
     QDesktopServices::openUrl(endpoint(m_provider->instance().baseUrl, path));
 }
 
@@ -509,8 +568,9 @@ void MainWindow::jump()
         if (total < 1)
             return;
         bool ok = false;
-        const auto position = QInputDialog::getInt(this, tr("Jump in queue"), tr("Queue position (including skipped and completed posts)"),
-                                                  qMin(m_engine->session().current + 1, total), 1, total, 1, &ok);
+        const auto position = QInputDialog::getInt(this, tr("Jump in queue"),
+                                                   tr("Queue position (including skipped and completed posts)"),
+                                                   qMin(m_engine->session().current + 1, total), 1, total, 1, &ok);
         if (ok)
             m_engine->jump(position - 1);
     });
@@ -531,7 +591,9 @@ void MainWindow::history()
         auto *text = new QPlainTextEdit(splitter);
         text->setReadOnly(true);
         for (const auto &entry : entries)
-            list->addItem(QStringLiteral("#%1 · %2 · %3").arg(entry.postId).arg(entry.outcome, entry.time.toString("MM-dd hh:mm")));
+            list->addItem(QStringLiteral("#%1 · %2 · %3")
+                              .arg(entry.postId)
+                              .arg(entry.outcome, entry.time.toString("MM-dd hh:mm")));
         splitter->addWidget(list);
         splitter->addWidget(text);
         splitter->setStretchFactor(1, 2);
@@ -544,11 +606,16 @@ void MainWindow::history()
             if (row < 0 || row >= entries.size())
                 return;
             const auto &entry = entries.at(row);
-            text->setPlainText(QObject::tr("Original snapshot:\n%1\n\nVerified result (empty for failed attempts):\n%2\n\nAdded:\n%3\n\nRemoved:\n%4\n\n%5")
-                .arg(sortedTags(entry.original).join(' '), sortedTags(entry.result).join(' '), sortedTags(entry.result - entry.original).join(' '),
-                     sortedTags(entry.original - entry.result).join(' '), entry.error));
+            text->setPlainText(QObject::tr("Original snapshot:\n%1\n\nVerified result (empty for failed "
+                                           "attempts):\n%2\n\nAdded:\n%3\n\nRemoved:\n%4\n\n%5")
+                                   .arg(sortedTags(entry.original).join(' '), sortedTags(entry.result).join(' '),
+                                        sortedTags(entry.result - entry.original).join(' '),
+                                        sortedTags(entry.original - entry.result).join(' '), entry.error));
         });
-        connect(browser, &QPushButton::clicked, &dialog, [this, entries, list] { if (list->currentRow() >= 0) openPost(entries.at(list->currentRow()).postId); });
+        connect(browser, &QPushButton::clicked, &dialog, [this, entries, list] {
+            if (list->currentRow() >= 0)
+                openPost(entries.at(list->currentRow()).postId);
+        });
         connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
         list->setCurrentRow(entries.isEmpty() ? -1 : 0);
         dialog.exec();
@@ -563,7 +630,10 @@ void MainWindow::rebuildPresets()
     guarded([&] {
         const auto presets = m_db->presets(m_provider->instance().id);
         for (auto it = presets.begin(); it != presets.end(); ++it) {
-            auto *action = m_presets->addAction(it.key(), this, [this, tags = it.value()] { if (m_editor->isEnabled()) m_editor->addText(tags.join(' ')); });
+            auto *action = m_presets->addAction(it.key(), this, [this, tags = it.value()] {
+                if (m_editor->isEnabled())
+                    m_editor->addText(tags.join(' '));
+            });
             action->setEnabled(m_editor->isEnabled());
         }
         m_presets->addSeparator();
@@ -572,7 +642,8 @@ void MainWindow::rebuildPresets()
             m_presets->addAction(tr("Delete a preset…"), this, [this, names = presets.keys()] {
                 bool ok = false;
                 const auto name = QInputDialog::getItem(this, tr("Delete preset"), tr("Preset"), names, 0, false, &ok);
-                if (ok) guarded([&] { m_db->deletePreset(m_provider->instance().id, name); });
+                if (ok)
+                    guarded([&] { m_db->deletePreset(m_provider->instance().id, name); });
             });
         }
     });
@@ -583,20 +654,40 @@ void MainWindow::savePreset()
     if (!m_provider)
         return;
     bool ok = false;
-    const auto name = QInputDialog::getText(this, tr("Save preset"), tr("Preset name (this instance only)"), QLineEdit::Normal, {}, &ok).trimmed();
+    const auto name = QInputDialog::getText(this, tr("Save preset"), tr("Preset name (this instance only)"),
+                                            QLineEdit::Normal, {}, &ok)
+                          .trimmed();
     if (!ok || name.isEmpty())
         return;
-    const auto text = QInputDialog::getMultiLineText(this, tr("Preset tags"), tr("Space-separated tags"), sortedTags(m_editor->changes().added).join(' '), &ok);
+    const auto text = QInputDialog::getMultiLineText(this, tr("Preset tags"), tr("Space-separated tags"),
+                                                     sortedTags(m_editor->changes().added).join(' '), &ok);
     if (ok)
-        guarded([&] { m_db->savePreset(m_provider->instance().id, name, splitTags(text, m_provider->instance().kind)); });
+        guarded(
+            [&] { m_db->savePreset(m_provider->instance().id, name, splitTags(text, m_provider->instance().kind)); });
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     if (m_engine->busy()) {
-        statusBar()->showMessage(tr("Wait for submission verification before closing. The draft is already stored locally."));
+        statusBar()->showMessage(
+            tr("Wait for submission verification before closing. The draft is already stored locally."));
         event->ignore();
         return;
+    }
+    if (m_engine->blocked()) {
+        QMessageBox warning(
+            QMessageBox::Warning, tr("Draft may not be saved"),
+            tr("Local storage failed. Export the current draft before closing to avoid losing the last edit."),
+            QMessageBox::NoButton, this);
+        auto *exportAndClose = warning.addButton(tr("Export draft and close"), QMessageBox::AcceptRole);
+        auto *discard = warning.addButton(tr("Close anyway"), QMessageBox::DestructiveRole);
+        auto *cancel = warning.addButton(QMessageBox::Cancel);
+        warning.setDefaultButton(cancel);
+        warning.exec();
+        if (warning.clickedButton() != discard && (warning.clickedButton() != exportAndClose || !exportDraft())) {
+            event->ignore();
+            return;
+        }
     }
     flushEdit();
     QSettings settings;
@@ -605,4 +696,33 @@ void MainWindow::closeEvent(QCloseEvent *event)
     event->accept();
 }
 
+bool MainWindow::exportDraft()
+{
+    if (!m_provider || m_engine->post().id < 1)
+        return false;
+    m_editor->commitInput();
+    const auto &changes = m_editor->changes();
+    const auto &draft = m_engine->draft();
+    const QJsonObject object{{"instance_id", m_provider->instance().id},
+                             {"session_id", m_engine->session().id},
+                             {"post_id", m_engine->post().id},
+                             {"original", QJsonArray::fromStringList(sortedTags(changes.original))},
+                             {"added", QJsonArray::fromStringList(sortedTags(changes.added))},
+                             {"removed", QJsonArray::fromStringList(sortedTags(changes.removed))},
+                             {"intended", QJsonArray::fromStringList(sortedTags(draft.intended))},
+                             {"state", stateName(draft.state)},
+                             {"sufficient", m_sufficient->isChecked()}};
+    const auto path = QFileDialog::getSaveFileName(this, tr("Export recovery draft"), "boorutagger-draft.json",
+                                                   tr("JSON files (*.json)"));
+    if (path.isEmpty())
+        return false;
+    QSaveFile file(path);
+    const auto bytes = QJsonDocument(object).toJson(QJsonDocument::Indented);
+    if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit()) {
+        QMessageBox::critical(this, tr("Export failed"), file.errorString());
+        return false;
+    }
+    return true;
 }
+
+} // namespace bt

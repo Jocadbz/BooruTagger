@@ -16,23 +16,24 @@ Completion::Completion(Database *database, QObject *parent) : QObject(parent), m
         const auto prefix = m_prefix;
         const auto instanceId = m_provider->instance().id;
         QPointer<Completion> guard(this);
-        m_provider->searchTags(prefix, [this, guard, sequence, prefix, instanceId](Result<QList<TagSuggestion>> result) {
-            if (!guard || sequence != m_sequence || !m_provider)
-                return;
-            if (!result) {
-                emit warning(result.error.message);
-                return;
-            }
-            try {
-                m_db->cacheTags(instanceId, *result.value);
-                m_db->saveSearchCache(instanceId, prefix, *result.value);
-                auto tags = *result.value;
-                tags.append(m_db->cachedTags(instanceId, prefix));
-                publish(tags);
-            } catch (const std::exception &error) {
-                emit warning(tr("Tag cache could not be saved: %1").arg(QString::fromUtf8(error.what())));
-            }
-        });
+        m_provider->searchTags(
+            prefix, [this, guard, sequence, prefix, instanceId](Result<QList<TagSuggestion>> result) {
+                if (!guard || sequence != m_sequence || !m_provider)
+                    return;
+                if (!result) {
+                    emit warning(result.error.message);
+                    return;
+                }
+                try {
+                    m_db->cacheTags(instanceId, *result.value);
+                    m_db->saveSearchCache(instanceId, prefix, *result.value);
+                    auto tags = *result.value;
+                    tags.append(m_db->cachedTags(instanceId, prefix));
+                    publish(tags);
+                } catch (const std::exception &error) {
+                    emit warning(tr("Tag cache could not be saved: %1").arg(QString::fromUtf8(error.what())));
+                }
+            });
     });
 }
 
@@ -83,8 +84,8 @@ void Completion::publish(QList<TagSuggestion> tags)
     QSet<QString> seen;
     QList<TagSuggestion> filtered;
     for (const auto &tag : tags) {
-        if (!seen.contains(tag.name) && !m_excluded.contains(tag.name)
-            && (tag.name.startsWith(m_prefix) || (!tag.alias.isEmpty() && tag.alias.startsWith(m_prefix)))) {
+        if (!seen.contains(tag.name) && !m_excluded.contains(tag.name) &&
+            (tag.name.startsWith(m_prefix) || (!tag.alias.isEmpty() && tag.alias.startsWith(m_prefix)))) {
             seen.insert(tag.name);
             filtered.append(tag);
         }
@@ -99,4 +100,4 @@ void Completion::publish(QList<TagSuggestion> tags)
     emit suggestions(filtered);
 }
 
-}
+} // namespace bt

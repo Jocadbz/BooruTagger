@@ -8,7 +8,7 @@
 namespace bt {
 
 class Database {
-public:
+  public:
     explicit Database(const QString &path);
     ~Database();
     Database(const Database &) = delete;
@@ -33,8 +33,8 @@ public:
     std::optional<Draft> draft(const QString &sessionId, qint64 postId) const;
     bool hasPendingDrafts(const QString &sessionId) const;
     void complete(Session &session, qint64 postId, const Draft &draft, const QSet<QString> &actual, bool advance);
-    void recordHistory(const Session &session, qint64 postId, const Draft &draft,
-                       const QSet<QString> &actual, const QString &outcome);
+    void recordHistory(const Session &session, qint64 postId, const Draft &draft, const QSet<QString> &actual,
+                       const QString &outcome);
     QList<HistoryEntry> history(const QString &instanceId, int limit = 200) const;
     void observeTags(const QString &instanceId, const QStringList &tags, bool recentlyUsed = false);
     void cacheTags(const QString &instanceId, const QList<TagSuggestion> &tags);
@@ -44,7 +44,8 @@ public:
     void savePreset(const QString &instanceId, const QString &name, const QStringList &tags);
     QMap<QString, QStringList> presets(const QString &instanceId) const;
     void deletePreset(const QString &instanceId, const QString &name);
-private:
+
+  private:
     QSqlQuery run(const QString &sql, const QVariantList &values = {}) const;
     void transaction(const std::function<void()> &operation);
     void pruneTags(const QString &instanceId);
@@ -52,4 +53,4 @@ private:
     QString m_connection;
 };
 
-}
+} // namespace bt

@@ -13,6 +13,8 @@ void DanbooruProvider::get(const QUrl &url, Callback<QJsonDocument> callback)
     m_http.send("GET", url, {}, [this, generation, callback](Result<HttpResponse> response) {
         if (generation != m_generation)
             return;
+        if (!response && response.error.kind == ErrorKind::Authentication)
+            m_authenticated = false;
         if (!response)
             callback(Result<QJsonDocument>::failure(response.error));
         else
@@ -35,7 +37,8 @@ void DanbooruProvider::authenticate(const QString &secret, Callback<AuthInfo> ca
         const auto name = object.value("name").toString();
         if (id < 1 || name.isEmpty() || name.compare(instance().username, Qt::CaseInsensitive) != 0) {
             m_http.clearAuthentication();
-            callback(Result<AuthInfo>::failure({ErrorKind::Authentication, tr("The profile did not match the configured account.")}));
+            callback(Result<AuthInfo>::failure(
+                {ErrorKind::Authentication, tr("The profile did not match the configured account.")}));
             return;
         }
         m_authenticated = true;
@@ -49,7 +52,8 @@ Result<Post> DanbooruProvider::parsePost(const QJsonObject &object, const QUrl &
     Post post;
     post.id = jsonId(object.value("id"));
     if (post.id < 1 || !object.value("tag_string").isString())
-        return Result<Post>::failure({ErrorKind::InvalidData, QStringLiteral("The server returned an invalid Danbooru post.")});
+        return Result<Post>::failure(
+            {ErrorKind::InvalidData, QStringLiteral("The server returned an invalid Danbooru post.")});
     post.tags = splitTags(object.value("tag_string").toString(), ProviderKind::Danbooru);
     auto file = object.value("file_url").toString();
     if (file.isEmpty())
@@ -67,16 +71,18 @@ Result<Post> DanbooruProvider::parsePost(const QJsonObject &object, const QUrl &
 
 void DanbooruProvider::fetchPost(qint64 id, Callback<Post> callback)
 {
-    get(endpoint(instance().baseUrl, QStringLiteral("posts/%1.json").arg(id)), [this, id, callback](Result<QJsonDocument> document) {
-        if (!document) {
-            callback(Result<Post>::failure(document.error));
-            return;
-        }
-        auto result = parsePost(document.value->object(), instance().baseUrl);
-        if (result && result.value->id != id)
-            result = Result<Post>::failure({ErrorKind::InvalidData, tr("The response contained a different post ID.")});
-        callback(result);
-    });
+    get(endpoint(instance().baseUrl, QStringLiteral("posts/%1.json").arg(id)),
+        [this, id, callback](Result<QJsonDocument> document) {
+            if (!document) {
+                callback(Result<Post>::failure(document.error));
+                return;
+            }
+            auto result = parsePost(document.value->object(), instance().baseUrl);
+            if (result && result.value->id != id)
+                result =
+                    Result<Post>::failure({ErrorKind::InvalidData, tr("The response contained a different post ID.")});
+            callback(result);
+        });
 }
 
 void DanbooruProvider::searchPosts(const SearchRequest &request, Callback<SearchPage> callback)
@@ -125,7 +131,8 @@ void DanbooruProvider::searchTags(const QString &prefix, Callback<QList<TagSugge
     url.setQuery(query);
     get(url, [this, callback, prefix](Result<QJsonDocument> document) {
         if (!document || !document.value->isArray()) {
-            callback(Result<QList<TagSuggestion>>::failure(document ? Error{ErrorKind::InvalidData, tr("Expected a tag array.")} : document.error));
+            callback(Result<QList<TagSuggestion>>::failure(
+                document ? Error{ErrorKind::InvalidData, tr("Expected a tag array.")} : document.error));
             return;
         }
         QList<TagSuggestion> suggestions;
@@ -176,32 +183,37 @@ void DanbooruProvider::searchTags(const QString &prefix, Callback<QList<TagSugge
     });
 }
 
-void DanbooruProvider::updateTags(qint64 id, const QSet<QString> &tags, const QSet<QString> &latest, Callback<bool> callback)
+void DanbooruProvider::updateTags(qint64 id, const QSet<QString> &tags, const QSet<QString> &latest,
+                                  Callback<bool> callback)
 {
     if (!m_authenticated) {
         callback(Result<bool>::failure({ErrorKind::Authentication, tr("Sign in before saving tags.")}));
         return;
     }
     const QJsonObject body{{"post", QJsonObject{{"tag_string", sortedTags(tags).join(' ')},
-                                               {"old_tag_string", sortedTags(latest).join(' ')}}}};
+                                                {"old_tag_string", sortedTags(latest).join(' ')}}}};
     writeLater([this, id, body, callback] {
         m_http.send("PUT", endpoint(instance().baseUrl, QStringLiteral("posts/%1.json").arg(id)),
-                    QJsonDocument(body).toJson(QJsonDocument::Compact), [this, generation = m_generation, id, callback](Result<HttpResponse> response) {
-            if (generation != m_generation)
-                return;
-            if (!response) {
-                callback(Result<bool>::failure(response.error));
-                return;
-            }
-            const auto document = parseJson(response.value->body);
-            if (!document || jsonId(document.value->object().value("id")) != id
-                || document.value->object().value("success").toBool(true) == false) {
-                callback(Result<bool>::failure({ErrorKind::InvalidData, QStringLiteral("Unexpected update response; verifying the post before retrying."), response.value->status, 0, true}));
-                return;
-            }
-            callback(Result<bool>::success(true));
-        });
+                    QJsonDocument(body).toJson(QJsonDocument::Compact),
+                    [this, generation = m_generation, id, callback](Result<HttpResponse> response) {
+                        if (generation != m_generation)
+                            return;
+                        if (!response) {
+                            callback(Result<bool>::failure(response.error));
+                            return;
+                        }
+                        const auto document = parseJson(response.value->body);
+                        if (!document || jsonId(document.value->object().value("id")) != id ||
+                            document.value->object().value("success").toBool(true) == false) {
+                            callback(Result<bool>::failure(
+                                {ErrorKind::InvalidData,
+                                 QStringLiteral("Unexpected update response; verifying the post before retrying."),
+                                 response.value->status, 0, true}));
+                            return;
+                        }
+                        callback(Result<bool>::success(true));
+                    });
     });
 }
 
-}
+} // namespace bt

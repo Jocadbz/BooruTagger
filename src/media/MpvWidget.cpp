@@ -15,15 +15,14 @@ MpvWidget::MpvWidget(QWidget *parent) : QOpenGLWidget(parent)
     m_mpv = mpv_create();
     if (!m_mpv)
         return;
-    for (const auto &option : {qMakePair("vo", "libmpv"), qMakePair("config", "no"),
-                               qMakePair("terminal", "no"), qMakePair("msg-level", "all=no"),
-                               qMakePair("hwdec", "auto-safe"), qMakePair("ytdl", "no"),
-                               qMakePair("load-unsafe-playlists", "no"), qMakePair("access-references", "no"),
-                               qMakePair("input-default-bindings", "no"), qMakePair("input-vo-keyboard", "no"),
-                               qMakePair("demuxer-max-bytes", "32MiB"), qMakePair("demuxer-max-back-bytes", "8MiB"),
-                               qMakePair("cache-secs", "20"), qMakePair("keep-open", "yes"),
-                               qMakePair("mute", "yes"), qMakePair("loop-file", "inf"),
-                               qMakePair("user-agent", "BooruTagger/" BOORUTAGGER_VERSION)})
+    for (const auto &option :
+         {qMakePair("vo", "libmpv"), qMakePair("config", "no"), qMakePair("terminal", "no"),
+          qMakePair("msg-level", "all=no"), qMakePair("hwdec", "auto-safe"), qMakePair("ytdl", "no"),
+          qMakePair("load-unsafe-playlists", "no"), qMakePair("access-references", "no"),
+          qMakePair("input-default-bindings", "no"), qMakePair("input-vo-keyboard", "no"),
+          qMakePair("demuxer-max-bytes", "32MiB"), qMakePair("demuxer-max-back-bytes", "8MiB"),
+          qMakePair("cache-secs", "20"), qMakePair("keep-open", "yes"), qMakePair("mute", "yes"),
+          qMakePair("loop-file", "inf"), qMakePair("user-agent", "BooruTagger/" BOORUTAGGER_VERSION)})
         mpv_set_option_string(m_mpv, option.first, option.second);
     if (mpv_initialize(m_mpv) < 0) {
         mpv_terminate_destroy(m_mpv);
@@ -82,15 +81,14 @@ void MpvWidget::initializeGL()
     }
     connect(context(), &QOpenGLContext::aboutToBeDestroyed, this, &MpvWidget::cleanupGL, Qt::DirectConnection);
     mpv_opengl_init_params init{&MpvWidget::resolve, nullptr};
-    mpv_render_param params[] = {
-        {MPV_RENDER_PARAM_API_TYPE, const_cast<char *>(MPV_RENDER_API_TYPE_OPENGL)},
-        {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &init},
-        {MPV_RENDER_PARAM_INVALID, nullptr}
-    };
+    mpv_render_param params[] = {{MPV_RENDER_PARAM_API_TYPE, const_cast<char *>(MPV_RENDER_API_TYPE_OPENGL)},
+                                 {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &init},
+                                 {MPV_RENDER_PARAM_INVALID, nullptr}};
     const int error = mpv_render_context_create(&m_render, m_mpv, params);
     if (error < 0) {
         m_render = nullptr;
-        emit playbackError(tr("Could not create the mpv OpenGL renderer: %1").arg(QString::fromUtf8(mpv_error_string(error))));
+        emit playbackError(
+            tr("Could not create the mpv OpenGL renderer: %1").arg(QString::fromUtf8(mpv_error_string(error))));
         return;
     }
     mpv_render_context_set_update_callback(m_render, &MpvWidget::redraw, this);
@@ -118,15 +116,14 @@ void MpvWidget::paintGL()
     }
     mpv_render_context_update(m_render);
     const auto ratio = devicePixelRatioF();
-    mpv_opengl_fbo fbo{static_cast<int>(defaultFramebufferObject()), qRound(width() * ratio), qRound(height() * ratio), 0};
+    mpv_opengl_fbo fbo{static_cast<int>(defaultFramebufferObject()), qRound(width() * ratio), qRound(height() * ratio),
+                       0};
     int flip = 1;
     int block = 0;
-    mpv_render_param params[] = {
-        {MPV_RENDER_PARAM_OPENGL_FBO, &fbo},
-        {MPV_RENDER_PARAM_FLIP_Y, &flip},
-        {MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, &block},
-        {MPV_RENDER_PARAM_INVALID, nullptr}
-    };
+    mpv_render_param params[] = {{MPV_RENDER_PARAM_OPENGL_FBO, &fbo},
+                                 {MPV_RENDER_PARAM_FLIP_Y, &flip},
+                                 {MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, &block},
+                                 {MPV_RENDER_PARAM_INVALID, nullptr}};
     mpv_render_context_render(m_render, params);
     emit frameRendered();
 }
@@ -157,7 +154,9 @@ void MpvWidget::load(const QUrl &url)
 void MpvWidget::loadPending()
 {
     if (!m_pendingUrl.isEmpty()) {
-        command({"loadfile", m_pendingUrl.isLocalFile() ? m_pendingUrl.toLocalFile().toUtf8() : m_pendingUrl.toEncoded(), "replace"});
+        command({"loadfile",
+                 m_pendingUrl.isLocalFile() ? m_pendingUrl.toLocalFile().toUtf8() : m_pendingUrl.toEncoded(),
+                 "replace"});
         m_pendingUrl.clear();
         command({"set", "pause", "no"});
     }
@@ -172,13 +171,34 @@ void MpvWidget::stop()
     emit durationChanged(0);
 }
 
-void MpvWidget::togglePause() { command({"cycle", "pause"}); }
-void MpvWidget::seek(double seconds, bool absolute) { command({"seek", QByteArray::number(seconds), absolute ? "absolute+exact" : "relative+exact"}); }
-void MpvWidget::frameStep(bool backwards) { command({backwards ? "frame-back-step" : "frame-step"}); }
-void MpvWidget::setSpeed(double speed) { command({"set", "speed", QByteArray::number(speed)}); }
-void MpvWidget::setLoop(bool loop) { command({"set", "loop-file", loop ? "inf" : "no"}); }
-void MpvWidget::setMuted(bool muted) { command({"set", "mute", muted ? "yes" : "no"}); }
-void MpvWidget::setVolume(int volume) { command({"set", "volume", QByteArray::number(volume)}); }
+void MpvWidget::togglePause()
+{
+    command({"cycle", "pause"});
+}
+void MpvWidget::seek(double seconds, bool absolute)
+{
+    command({"seek", QByteArray::number(seconds), absolute ? "absolute+exact" : "relative+exact"});
+}
+void MpvWidget::frameStep(bool backwards)
+{
+    command({backwards ? "frame-back-step" : "frame-step"});
+}
+void MpvWidget::setSpeed(double speed)
+{
+    command({"set", "speed", QByteArray::number(speed)});
+}
+void MpvWidget::setLoop(bool loop)
+{
+    command({"set", "loop-file", loop ? "inf" : "no"});
+}
+void MpvWidget::setMuted(bool muted)
+{
+    command({"set", "mute", muted ? "yes" : "no"});
+}
+void MpvWidget::setVolume(int volume)
+{
+    command({"set", "volume", QByteArray::number(volume)});
+}
 
 void MpvWidget::processEvents()
 {
@@ -201,9 +221,10 @@ void MpvWidget::processEvents()
         } else if (event->event_id == MPV_EVENT_END_FILE) {
             const auto *end = static_cast<mpv_event_end_file *>(event->data);
             if (!m_stopping && end->reason == MPV_END_FILE_REASON_ERROR)
-                emit playbackError(tr("Video could not be played: %1").arg(QString::fromUtf8(mpv_error_string(end->error))));
+                emit playbackError(
+                    tr("Video could not be played: %1").arg(QString::fromUtf8(mpv_error_string(end->error))));
         }
     }
 }
 
-}
+} // namespace bt

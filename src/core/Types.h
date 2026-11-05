@@ -50,7 +50,7 @@ struct Error {
     bool uncertain = false;
 };
 
-template<class T> struct Result {
+template <class T> struct Result {
     std::optional<T> value;
     Error error;
     explicit operator bool() const { return value.has_value(); }
@@ -58,7 +58,7 @@ template<class T> struct Result {
     static Result failure(Error error) { return {std::nullopt, std::move(error)}; }
 };
 
-template<class T> using Callback = std::function<void(Result<T>)>;
+template <class T> using Callback = std::function<void(Result<T>)>;
 
 QString normalizeTag(QString tag, ProviderKind kind);
 QStringList splitTags(const QString &text, ProviderKind kind);
@@ -71,7 +71,7 @@ bool sameOrigin(const QUrl &a, const QUrl &b);
 QString validateInstance(const Instance &instance);
 QString kindName(ProviderKind kind);
 
-}
+} // namespace bt
 
 Q_DECLARE_METATYPE(bt::Post)
 Q_DECLARE_METATYPE(bt::Error)

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=BooruTagger
+GenericName=Booru post tagger
+Comment=Manually tag images and videos on Danbooru and Shimmie2
+Exec=boorutagger
+TryExec=boorutagger
+Icon=boorutagger
+Terminal=false
+Categories=Graphics;Photography;
+Keywords=booru;tags;images;video;
+StartupNotify=true

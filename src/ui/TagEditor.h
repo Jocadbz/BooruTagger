@@ -14,18 +14,19 @@ namespace bt {
 
 class SuggestionModel : public QAbstractListModel {
     Q_OBJECT
-public:
+  public:
     explicit SuggestionModel(QObject *parent = nullptr);
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     void setSuggestions(QList<TagSuggestion> suggestions, const QSet<QString> &excluded);
-private:
+
+  private:
     QList<TagSuggestion> m_tags;
 };
 
 class TagEditor : public QWidget {
     Q_OBJECT
-public:
+  public:
     explicit TagEditor(QWidget *parent = nullptr);
     void load(const TagChanges &changes, ProviderKind kind);
     const TagChanges &changes() const { return m_changes; }
@@ -37,12 +38,14 @@ public:
     void addText(const QString &text);
     void setRemoveTagmePreview(bool enabled);
     void replaceAll();
-signals:
+  signals:
     void changed();
     void prefixChanged(const QString &prefix);
-protected:
+
+  protected:
     bool eventFilter(QObject *object, QEvent *event) override;
-private:
+
+  private:
     void apply(const TagChanges &changes);
     void edit(const std::function<void(TagChanges &)> &operation);
     void removeSelected();
@@ -58,4 +61,4 @@ private:
     bool m_removeTagmePreview = false;
 };
 
-}
+} // namespace bt

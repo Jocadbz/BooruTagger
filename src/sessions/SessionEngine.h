@@ -11,7 +11,7 @@ enum class VerificationDecision { AcceptServer, AllowRetry, KeepUncertain };
 
 class SessionEngine : public QObject {
     Q_OBJECT
-public:
+  public:
     explicit SessionEngine(Database *database, QObject *parent = nullptr);
     ~SessionEngine() override;
     void create(Session session, BooruProvider *provider);
@@ -34,20 +34,23 @@ public:
     bool building() const { return m_building; }
     bool ready() const { return m_ready && !m_blocked; }
     bool blocked() const { return m_blocked; }
-signals:
+  signals:
     void sessionChanged(const bt::Session &session);
     void postReady(const bt::Post &post, const bt::TagChanges &changes, bool sufficient);
     void stateChanged(bt::SubmissionState state);
     void loadingChanged(bool loading);
     void progressChanged(int position, int total, int done);
     void status(const QString &message);
+    void queueSummary(const QString &message);
+    void postSkipped(qint64 id, const QString &reason);
     void error(const bt::Error &error);
     void databaseError(const QString &message);
     void conflict(const bt::Post &latest, const bt::TagChanges &changes, const bt::TagMerge &merge);
     void verificationMismatch(const QSet<QString> &expected, const bt::Post &actual, bool uncertainWrite);
     void previewAvailable(const bt::Post &post);
     void finished();
-private:
+
+  private:
     void safely(const std::function<void()> &operation);
     bool canUse(BooruProvider *provider, const Session &session);
     void detach();
@@ -81,4 +84,4 @@ private:
     QString m_lastPage;
 };
 
-}
+} // namespace bt

@@ -9,15 +9,16 @@ namespace bt {
 
 class Completion : public QObject {
     Q_OBJECT
-public:
+  public:
     explicit Completion(Database *database, QObject *parent = nullptr);
     void setProvider(BooruProvider *provider);
     void request(const QString &prefix);
     void setExcluded(QSet<QString> excluded);
-signals:
+  signals:
     void suggestions(const QList<bt::TagSuggestion> &suggestions);
     void warning(const QString &message);
-private:
+
+  private:
     void publish(QList<TagSuggestion> tags);
     Database *m_db;
     QPointer<BooruProvider> m_provider;
@@ -28,4 +29,4 @@ private:
     QList<TagSuggestion> m_current;
 };
 
-}
+} // namespace bt

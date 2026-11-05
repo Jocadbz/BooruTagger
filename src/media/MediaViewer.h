@@ -18,7 +18,7 @@ class MpvWidget;
 
 class MediaViewer : public QWidget {
     Q_OBJECT
-public:
+  public:
     explicit MediaViewer(QWidget *parent = nullptr);
     ~MediaViewer() override;
     void load(const Post &post, HttpClient *client);
@@ -26,9 +26,10 @@ public:
     void fit();
     void actualSize();
     void prefetch(const Post &post, HttpClient *client);
-signals:
+  signals:
     void mediaError(const QString &message);
-private:
+
+  private:
     void decode(const QByteArray &bytes, const QString &key, quint64 generation, bool prefetch);
     QStackedWidget *m_stack;
     ImageView *m_image;
@@ -53,4 +54,4 @@ private:
     QCache<QString, QImage> m_images{96 * 1024};
 };
 
-}
+} // namespace bt

@@ -6,8 +6,9 @@ using namespace bt;
 
 class DatabaseTests : public QObject {
     Q_OBJECT
-private slots:
-    void persistenceAndIsolation() {
+  private slots:
+    void persistenceAndIsolation()
+    {
         QTemporaryDir dir;
         const auto path = dir.filePath("sessions.sqlite");
         QString sessionId;
@@ -51,6 +52,12 @@ private slots:
             i.baseUrl = QUrl("https://b.test");
             QVERIFY_EXCEPTION_THROWN(db.saveInstance(i), std::runtime_error);
             QVERIFY_EXCEPTION_THROWN(db.saveDraft(s.id, 999, d), std::runtime_error);
+            QVERIFY_EXCEPTION_THROWN(db.complete(s, 999, d, d.intended, true), std::runtime_error);
+            QVERIFY(db.draft(s.id, 5));
+            QCOMPARE(s.current, 1);
+            auto wrongContext = s;
+            wrongContext.instanceId = "b";
+            QVERIFY_EXCEPTION_THROWN(db.updateSession(wrongContext), std::runtime_error);
         }
         {
             Database db(path);
@@ -76,11 +83,14 @@ private slots:
             QCOMPARE(db.presets("a").value("faces"), QStringList({"smile", "solo"}));
         }
     }
-    void rangeOrder() {
+    void rangeOrder()
+    {
         Database db(":memory:");
         db.saveInstance({"a", "one", ProviderKind::Shimmie, QUrl("https://a.test"), "user", false});
         Session s;
-        s.name = "range"; s.instanceId = "a"; s.account = "user";
+        s.name = "range";
+        s.instanceId = "a";
+        s.account = "user";
         s = db.createSession(s);
         db.appendQueue(s.id, idRange(8, 4));
         QCOMPARE(db.queueEntry(s.id, 0)->postId, 8);

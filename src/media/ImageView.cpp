@@ -69,4 +69,4 @@ void ImageView::resizeEvent(QResizeEvent *event)
         fit();
 }
 
-}
+} // namespace bt

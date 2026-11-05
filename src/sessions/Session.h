@@ -55,7 +55,7 @@ struct HistoryEntry {
     QDateTime time;
 };
 
-}
+} // namespace bt
 
 Q_DECLARE_METATYPE(bt::Session)
 Q_DECLARE_METATYPE(bt::SubmissionState)

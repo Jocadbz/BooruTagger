@@ -1,6 +1,6 @@
+#include "HttpFixture.h"
 #include "providers/DanbooruProvider.h"
 #include "providers/ShimmieProvider.h"
-#include "HttpFixture.h"
 #include <QJsonArray>
 #include <QStandardPaths>
 #include <QUrlQuery>
@@ -10,9 +10,10 @@ using namespace bt;
 
 class ProviderTests : public QObject {
     Q_OBJECT
-private slots:
+  private slots:
     void initTestCase() { QStandardPaths::setTestModeEnabled(true); }
-    void danbooruContract() {
+    void danbooruContract()
+    {
         HttpFixture server;
         server.handler = [](const FixtureRequest &request) -> FixtureResponse {
             if (request.url.path().endsWith("profile.json"))
@@ -20,9 +21,13 @@ private slots:
             if (request.url.path().endsWith("tags.json"))
                 return {200, R"([{"name":"smile","category":0,"post_count":123,"is_deprecated":false}])", {}, false};
             if (request.url.path().endsWith("tag_aliases.json"))
-                return {200, R"([{"antecedent_name":"smiling","consequent_name":"smile","status":"active"}])", {}, false};
+                return {
+                    200, R"([{"antecedent_name":"smiling","consequent_name":"smile","status":"active"}])", {}, false};
             if (request.url.path().endsWith("posts.json"))
-                return {200, R"([{"id":8,"tag_string":"solo tagme","file_url":"/media/a.jpg","file_ext":"jpg"}])", {}, false};
+                return {200,
+                        R"([{"id":8,"tag_string":"solo tagme","file_url":"/media/a.jpg","file_ext":"jpg"}])",
+                        {},
+                        false};
             return {200, R"({"id":8,"tag_string":"solo smile","file_url":null,"file_ext":"webm"})", {}, false};
         };
         DanbooruProvider provider({"dan-test", "test", ProviderKind::Danbooru, server.base("/booru"), "tester", true});
@@ -63,22 +68,29 @@ private slots:
         QCOMPARE(body.value("old_tag_string").toString(), QString("solo tagme"));
         QCOMPARE(body.value("tag_string").toString(), QString("smile solo"));
     }
-    void parsing() {
+    void parsing()
+    {
         QVERIFY(!parseJson("not json"));
         QVERIFY(!DanbooruProvider::parsePost({{"id", 1}}, QUrl("https://example.test")));
         QVERIFY(!ShimmieProvider::parsePost({{"id", 1}, {"tags", "solo"}}, QUrl("https://example.test")));
-        auto post = ShimmieProvider::parsePost({{"id", "opaque"}, {"post_id", "123"}, {"tags", QJsonArray{"Custom:Tag", "solo"}},
-                                                {"image_link", "images/a.webm"}, {"ext", "webm"}}, QUrl("https://example.test/booru/"));
+        auto post = ShimmieProvider::parsePost({{"id", "opaque"},
+                                                {"post_id", "123"},
+                                                {"tags", QJsonArray{"Custom:Tag", "solo"}},
+                                                {"image_link", "images/a.webm"},
+                                                {"ext", "webm"}},
+                                               QUrl("https://example.test/booru/"));
         QVERIFY(post);
         QCOMPARE(post.value->id, 123);
         QCOMPARE(post.value->mediaUrl.toString(), QString("https://example.test/booru/images/a.webm"));
         QVERIFY(post.value->tags.contains("Custom:Tag"));
-        const auto error = ShimmieProvider::parseEnvelope(R"({"data":{"posts":[]},"errors":[{"message":"denied","extensions":{"code":"FORBIDDEN"}}]})");
+        const auto error = ShimmieProvider::parseEnvelope(
+            R"({"data":{"posts":[]},"errors":[{"message":"denied","extensions":{"code":"FORBIDDEN"}}]})");
         QVERIFY(!error);
         QCOMPARE(error.error.kind, ErrorKind::Permission);
         QVERIFY(!ShimmieProvider::parseEnvelope(R"({"data":null})"));
     }
-    void shimmieContractAndEscaping() {
+    void shimmieContractAndEscaping()
+    {
         HttpFixture server;
         server.handler = [](const FixtureRequest &request) -> FixtureResponse {
             const auto query = request.json().value("query").toString();
@@ -87,8 +99,13 @@ private slots:
             if (query.contains("login("))
                 return {200, R"({"data":{"login":{"user":{"name":"tester"},"session":"private-token"}}})", {}, false};
             if (query.contains("update_post_metadata("))
-                return {200, R"({"data":{"update_post_metadata":{"id":"opaque","tags":"Custom:Tag solo"}}})", {}, false};
-            return {200, R"({"data":{"posts":[{"id":9999,"post_id":123,"tags":["Custom:Tag","tagme"],"ext":"png","image_link":"/image/123"}]}})", {}, false};
+                return {
+                    200, R"({"data":{"update_post_metadata":{"id":"opaque","tags":"Custom:Tag solo"}}})", {}, false};
+            return {
+                200,
+                R"({"data":{"posts":[{"id":9999,"post_id":123,"tags":["Custom:Tag","tagme"],"ext":"png","image_link":"/image/123"}]}})",
+                {},
+                false};
         };
         ShimmieProvider provider({"shm-test", "test", ProviderKind::Shimmie, server.base("/subdir/"), "tester", true});
         std::optional<Result<AuthInfo>> auth;
@@ -119,11 +136,16 @@ private slots:
         QVERIFY(!provider.remoteAutocomplete());
         QCOMPARE(provider.http()->redact("private-token"), QString("[redacted]"));
     }
-    void shimmieVariables() {
+    void shimmieVariables()
+    {
         HttpFixture server;
         server.handler = [](const FixtureRequest &request) -> FixtureResponse {
             if (request.json().value("query").toString().contains("__schema"))
-                return {200, R"({"data":{"__schema":{"mutationType":{"fields":[{"name":"login","args":[{"name":"username","type":{"kind":"NON_NULL","ofType":{"kind":"SCALAR","name":"String"}}},{"name":"password","type":{"kind":"NON_NULL","ofType":{"kind":"SCALAR","name":"String"}}}]}]},"queryType":{"fields":[]}}}})", {}, false};
+                return {
+                    200,
+                    R"({"data":{"__schema":{"mutationType":{"fields":[{"name":"login","args":[{"name":"username","type":{"kind":"NON_NULL","ofType":{"kind":"SCALAR","name":"String"}}},{"name":"password","type":{"kind":"NON_NULL","ofType":{"kind":"SCALAR","name":"String"}}}]}]},"queryType":{"fields":[]}}}})",
+                    {},
+                    false};
             return {200, R"({"data":{"login":{"user":{"name":"tester"},"session":"token"}}})", {}, false};
         };
         ShimmieProvider provider({"shm-vars", "test", ProviderKind::Shimmie, server.base(), "tester", true});
@@ -136,10 +158,13 @@ private slots:
         QVERIFY(!body.value("query").toString().contains("secret"));
         QCOMPARE(body.value("variables").toObject().value("password").toString(), QString("secret"));
     }
-    void networkErrorsAndIsolation() {
+    void networkErrorsAndIsolation()
+    {
         HttpFixture one;
         HttpFixture two;
-        one.handler = [](const FixtureRequest &) -> FixtureResponse { return {429, "{}", {{"Retry-After", "3"}}, false}; };
+        one.handler = [](const FixtureRequest &) -> FixtureResponse {
+            return {429, "{}", {{"Retry-After", "3"}}, false};
+        };
         HttpClient a({"a", "one", ProviderKind::Danbooru, one.base(), "alice", true});
         HttpClient b({"b", "two", ProviderKind::Danbooru, two.base(), "bob", true});
         a.setBasicAuth("alice", "secret");
@@ -149,6 +174,12 @@ private slots:
         QVERIFY(!*result);
         QCOMPARE(result->error.kind, ErrorKind::RateLimit);
         QCOMPARE(result->error.retryAfterSeconds, 3);
+        const auto before = one.requests.size();
+        result.reset();
+        a.send("GET", one.base("/posts.json"), {}, [&](auto response) { result = response; });
+        QTRY_VERIFY(result.has_value());
+        QCOMPARE(result->error.kind, ErrorKind::RateLimit);
+        QCOMPARE(one.requests.size(), before);
         result.reset();
         b.send("GET", two.base("/posts.json"), {}, [&](auto response) { result = response; });
         QTRY_VERIFY(result.has_value());
@@ -158,12 +189,20 @@ private slots:
         a.send("GET", two.base("/posts.json"), {}, [&](auto response) { result = response; });
         QTRY_VERIFY(result.has_value());
         QCOMPARE(result->error.kind, ErrorKind::Permission);
-        one.handler = [&two](const FixtureRequest &) -> FixtureResponse { return {302, "", {{"Location", two.base("/image").toEncoded()}}, false}; };
+        one.handler = [&two](const FixtureRequest &) -> FixtureResponse {
+            return {302, "", {{"Location", two.base("/image").toEncoded()}}, false};
+        };
         result.reset();
         a.send("GET", one.base("/image"), {}, [&](auto response) { result = response; }, true);
         QTRY_VERIFY(result.has_value());
         QVERIFY(*result);
         QVERIFY(!two.requests.last().headers.contains("authorization"));
+        a.setSessionCookies("alice", "scoped-session");
+        result.reset();
+        a.send("GET", one.base("/image"), {}, [&](auto response) { result = response; }, true);
+        QTRY_VERIFY(result.has_value());
+        QVERIFY(*result);
+        QVERIFY(!two.requests.last().headers.contains("cookie"));
     }
 };
 

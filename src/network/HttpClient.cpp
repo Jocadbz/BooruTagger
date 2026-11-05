@@ -1,20 +1,40 @@
 #include "HttpClient.h"
 
 #include <QDir>
+#include <QNetworkCacheMetaData>
 #include <QNetworkCookie>
 #include <QNetworkCookieJar>
 #include <QNetworkDiskCache>
 #include <QStandardPaths>
 
 namespace bt {
+namespace {
+class MediaDiskCache : public QNetworkDiskCache {
+  public:
+    using QNetworkDiskCache::QNetworkDiskCache;
+    QIODevice *prepare(const QNetworkCacheMetaData &data) override { return QNetworkDiskCache::prepare(clean(data)); }
+    void updateMetaData(const QNetworkCacheMetaData &data) override { QNetworkDiskCache::updateMetaData(clean(data)); }
 
-HttpClient::HttpClient(Instance instance, QObject *parent)
-    : QObject(parent), m_instance(std::move(instance))
+  private:
+    static QNetworkCacheMetaData clean(QNetworkCacheMetaData data)
+    {
+        auto headers = data.rawHeaders();
+        headers.removeIf([](const auto &header) {
+            return header.first.compare("Set-Cookie", Qt::CaseInsensitive) == 0 ||
+                   header.first.compare("Authorization", Qt::CaseInsensitive) == 0;
+        });
+        data.setRawHeaders(headers);
+        return data;
+    }
+};
+} // namespace
+
+HttpClient::HttpClient(Instance instance, QObject *parent) : QObject(parent), m_instance(std::move(instance))
 {
     m_manager.setRedirectPolicy(QNetworkRequest::ManualRedirectPolicy);
-    auto *cache = new QNetworkDiskCache(&m_manager);
-    cache->setCacheDirectory(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
-                            + "/media/" + m_instance.id);
+    auto *cache = new MediaDiskCache(&m_manager);
+    cache->setCacheDirectory(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/media/" +
+                             m_instance.id);
     cache->setMaximumCacheSize(128 * 1024 * 1024);
     m_manager.setCache(cache);
 }
@@ -39,7 +59,7 @@ void HttpClient::setSessionCookies(const QString &username, const QString &sessi
     clearAuthentication();
     QList<QNetworkCookie> cookies;
     for (const auto &pair : {qMakePair(QByteArray("shm_user"), username.toUtf8()),
-                              qMakePair(QByteArray("shm_session"), session.toUtf8())}) {
+                             qMakePair(QByteArray("shm_session"), session.toUtf8())}) {
         QNetworkCookie cookie(pair.first, pair.second);
         cookie.setPath(m_instance.baseUrl.path().isEmpty() ? "/" : m_instance.baseUrl.path());
         cookie.setSecure(m_instance.baseUrl.scheme() == "https");
@@ -69,14 +89,31 @@ QString HttpClient::redact(QString text) const
 }
 
 QNetworkReply *HttpClient::send(const QByteArray &method, const QUrl &url, const QByteArray &body,
-                              Callback<HttpResponse> callback, bool media, int redirects)
+                                Callback<HttpResponse> callback, bool media, int redirects)
 {
     const bool local = sameOrigin(url, m_instance.baseUrl);
-    if ((!media && !local) || (url.scheme() != "https" && !(url.scheme() == "http" && m_instance.allowHttp))
-        || !url.userInfo().isEmpty()) {
-        QMetaObject::invokeMethod(this, [callback] {
-            callback(Result<HttpResponse>::failure({ErrorKind::Permission, QStringLiteral("Blocked an unsafe network URL.")}));
-        }, Qt::QueuedConnection);
+    if ((!media && !local) || (url.scheme() != "https" && !(url.scheme() == "http" && m_instance.allowHttp)) ||
+        !url.userInfo().isEmpty()) {
+        QMetaObject::invokeMethod(
+            this,
+            [callback] {
+                callback(Result<HttpResponse>::failure(
+                    {ErrorKind::Permission, QStringLiteral("Blocked an unsafe network URL.")}));
+            },
+            Qt::QueuedConnection);
+        return nullptr;
+    }
+    if (!media && m_retryAt > QDateTime::currentDateTimeUtc()) {
+        const auto seconds = qMax<qint64>(1, QDateTime::currentDateTimeUtc().secsTo(m_retryAt) + 1);
+        QMetaObject::invokeMethod(
+            this,
+            [callback, seconds] {
+                callback(Result<HttpResponse>::failure(
+                    {ErrorKind::RateLimit,
+                     QStringLiteral("Respecting Retry-After: wait %1 seconds before retrying.").arg(seconds), 429,
+                     static_cast<int>(seconds)}));
+            },
+            Qt::QueuedConnection);
         return nullptr;
     }
     QNetworkRequest request(url);
@@ -135,8 +172,9 @@ QNetworkReply *HttpClient::send(const QByteArray &method, const QUrl &url, const
             error.message = QStringLiteral("Response exceeds the download size limit (64 MiB for images).");
         } else if (status >= 300 && status < 400 && redirect.isValid()) {
             error.kind = ErrorKind::Other;
-            error.message = media ? QStringLiteral("Media redirected. Use the direct media URL supplied by the instance.")
-                                  : QStringLiteral("The API redirected. Check the configured installation URL.");
+            error.message = media
+                                ? QStringLiteral("Media redirected. Use the direct media URL supplied by the instance.")
+                                : QStringLiteral("The API redirected. Check the configured installation URL.");
         } else if (status == 401) {
             error.kind = ErrorKind::Authentication;
             error.message = QStringLiteral("Authentication expired or the credentials were rejected. Sign in again.");
@@ -151,16 +189,24 @@ QNetworkReply *HttpClient::send(const QByteArray &method, const QUrl &url, const
             bool numeric = false;
             int seconds = reply->rawHeader("Retry-After").toInt(&numeric);
             if (!numeric) {
-                const auto when = QDateTime::fromString(QString::fromLatin1(reply->rawHeader("Retry-After")), Qt::RFC2822Date);
+                const auto when =
+                    QDateTime::fromString(QString::fromLatin1(reply->rawHeader("Retry-After")), Qt::RFC2822Date);
                 seconds = when.isValid() ? static_cast<int>(QDateTime::currentDateTimeUtc().secsTo(when)) : 5;
             }
             error.retryAfterSeconds = qMax(1, seconds);
             m_retryAt = QDateTime::currentDateTimeUtc().addSecs(error.retryAfterSeconds);
-            error.message = QStringLiteral("Rate limited. Wait %1 seconds before retrying.").arg(error.retryAfterSeconds);
+            error.message =
+                QStringLiteral("Rate limited. Wait %1 seconds before retrying.").arg(error.retryAfterSeconds);
+        } else if (reply->error() == QNetworkReply::SslHandshakeFailedError) {
+            error.kind = ErrorKind::Network;
+            error.message = QStringLiteral("TLS certificate verification failed. Fix the certificate or your OS trust "
+                                           "store; certificate checks are never bypassed.");
         } else if (reply->error() != QNetworkReply::NoError || status >= 400) {
-            error.kind = reply->error() == QNetworkReply::OperationCanceledError ? ErrorKind::Cancelled : ErrorKind::Network;
-            error.message = status >= 400 ? QStringLiteral("Server returned HTTP %1.").arg(status)
-                                         : QStringLiteral("Network request failed. Check connectivity and TLS certificates.");
+            error.kind =
+                reply->error() == QNetworkReply::OperationCanceledError ? ErrorKind::Cancelled : ErrorKind::Network;
+            error.message = status >= 400
+                                ? QStringLiteral("Server returned HTTP %1.").arg(status)
+                                : QStringLiteral("Network request failed. Check connectivity and TLS certificates.");
             error.uncertain = method != "GET" && (status == 0 || status >= 500);
         }
         reply->deleteLater();
@@ -188,4 +234,4 @@ void HttpClient::cancelMedia()
     }
 }
 
-}
+} // namespace bt

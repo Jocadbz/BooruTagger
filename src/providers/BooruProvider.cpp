@@ -7,8 +7,7 @@
 
 namespace bt {
 
-BooruProvider::BooruProvider(Instance instance, QObject *parent)
-    : QObject(parent), m_http(std::move(instance), this)
+BooruProvider::BooruProvider(Instance instance, QObject *parent) : QObject(parent), m_http(std::move(instance), this)
 {
     m_writeTimer.setSingleShot(true);
     connect(&m_writeTimer, &QTimer::timeout, this, [this] {
@@ -49,7 +48,8 @@ Result<QJsonDocument> parseJson(const QByteArray &body)
     QJsonParseError error;
     const auto document = QJsonDocument::fromJson(body, &error);
     if (error.error != QJsonParseError::NoError || document.isNull())
-        return Result<QJsonDocument>::failure({ErrorKind::InvalidData, QStringLiteral("The server returned invalid JSON.")});
+        return Result<QJsonDocument>::failure(
+            {ErrorKind::InvalidData, QStringLiteral("The server returned invalid JSON.")});
     return Result<QJsonDocument>::success(document);
 }
 
@@ -58,4 +58,4 @@ qint64 jsonId(const QJsonValue &value)
     return value.isString() ? value.toString().toLongLong() : value.toInteger();
 }
 
-}
+} // namespace bt

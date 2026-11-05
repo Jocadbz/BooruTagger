@@ -69,4 +69,4 @@ QList<qint64> uniqueIds(const QList<qint64> &ids)
     return result;
 }
 
-}
+} // namespace bt

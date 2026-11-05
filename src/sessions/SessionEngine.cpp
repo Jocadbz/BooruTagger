@@ -5,7 +5,9 @@
 
 namespace bt {
 
-SessionEngine::SessionEngine(Database *database, QObject *parent) : QObject(parent), m_db(database) {}
+SessionEngine::SessionEngine(Database *database, QObject *parent) : QObject(parent), m_db(database)
+{
+}
 
 SessionEngine::~SessionEngine()
 {
@@ -23,13 +25,16 @@ void SessionEngine::safely(const std::function<void()> &operation)
         m_ready = false;
         m_state = SubmissionState::Failed;
         emit stateChanged(m_state);
-        emit databaseError(tr("Local storage failed. Editing is paused to protect the draft.\n%1").arg(QString::fromUtf8(error.what())));
+        emit databaseError(tr("Local storage failed. Editing is paused. The last edit might not be on disk; export the "
+                              "draft before closing.\n%1")
+                               .arg(QString::fromUtf8(error.what())));
     }
 }
 
 bool SessionEngine::canUse(BooruProvider *provider, const Session &session)
 {
-    if (!provider || provider->instance().id != session.instanceId || provider->instance().username != session.account) {
+    if (!provider || provider->instance().id != session.instanceId ||
+        provider->instance().username != session.account) {
         emit error({ErrorKind::Permission, tr("This session belongs to a different instance or account.")});
         return false;
     }
@@ -78,9 +83,10 @@ void SessionEngine::create(Session session, BooruProvider *provider)
         emit error({ErrorKind::Other, tr("Enter a search query.")});
         return;
     }
-    if (provider->instance().kind == ProviderKind::Danbooru && session.source == Source::Search
-        && QRegularExpression("(^|\\s)order:").match(session.query).hasMatch()) {
-        emit error({ErrorKind::Other, tr("Remove the order: term. Session discovery uses stable descending ID order.")});
+    if (provider->instance().kind == ProviderKind::Danbooru && session.source == Source::Search &&
+        QRegularExpression("(^|\\s)order:").match(session.query).hasMatch()) {
+        emit error(
+            {ErrorKind::Other, tr("Remove the order: term. Session discovery uses stable descending ID order.")});
         return;
     }
     safely([&] {
@@ -141,77 +147,82 @@ void SessionEngine::discover()
     if (!m_provider || !m_building || m_discovering)
         return;
     const int count = m_db->queueSize(m_session.id);
-    const int target = m_session.source == Source::Range ? idRange(m_session.firstId, m_session.lastId).size() : m_session.limit;
+    const int target =
+        m_session.source == Source::Range ? idRange(m_session.firstId, m_session.lastId).size() : m_session.limit;
     if (count >= target) {
         finishDiscovery();
         return;
     }
     SearchRequest request;
-    request.query = m_session.source == Source::Range
-        ? QStringLiteral("id:%1..%2").arg(qMin(m_session.firstId, m_session.lastId)).arg(qMax(m_session.firstId, m_session.lastId))
-        : m_session.query;
+    request.query = m_session.source == Source::Range ? QStringLiteral("id:%1..%2")
+                                                            .arg(qMin(m_session.firstId, m_session.lastId))
+                                                            .arg(qMax(m_session.firstId, m_session.lastId))
+                                                      : m_session.query;
     request.limit = 100;
     request.cursor = m_session.cursor;
     request.offset = m_session.offset;
     const auto epoch = m_epoch;
     m_discovering = true;
     emit status(tr("Discovering queue… %1 / %2 IDs stored. Editing starts after discovery.").arg(count).arg(target));
-    m_provider->searchPosts(request, [this, epoch, target](Result<SearchPage> result) {
-        if (epoch != m_epoch || !m_building)
-            return;
-        m_discovering = false;
-        safely([&] {
-            if (!result) {
-                emit loadingChanged(false);
-                emit error(result.error);
-                emit status(tr("Discovery paused. Retry the session or use the IDs already discovered."));
+    m_provider->searchPosts(
+        request, [this, guard = QPointer<SessionEngine>(this), epoch, target](Result<SearchPage> result) {
+            if (!guard || epoch != m_epoch || !m_building)
                 return;
-            }
-            QList<qint64> ids;
-            QStringList observed;
-            QStringList fingerprint;
-            for (const auto &post : result.value->posts) {
-                fingerprint.append(QString::number(post.id));
-                if (m_session.source == Source::Range && (post.id < qMin(m_session.firstId, m_session.lastId)
-                    || post.id > qMax(m_session.firstId, m_session.lastId))) {
-                    emit error({ErrorKind::InvalidData, tr("The server ignored the requested ID range. Discovery stopped.")});
+            m_discovering = false;
+            safely([&] {
+                if (!result) {
+                    emit loadingChanged(false);
+                    emit error(result.error);
+                    emit status(tr("Discovery paused. Retry the session or use the IDs already discovered."));
+                    return;
+                }
+                QList<qint64> ids;
+                QStringList observed;
+                QStringList fingerprint;
+                for (const auto &post : result.value->posts) {
+                    fingerprint.append(QString::number(post.id));
+                    if (m_session.source == Source::Range && (post.id < qMin(m_session.firstId, m_session.lastId) ||
+                                                              post.id > qMax(m_session.firstId, m_session.lastId))) {
+                        emit error({ErrorKind::InvalidData,
+                                    tr("The server ignored the requested ID range. Discovery stopped.")});
+                        emit loadingChanged(false);
+                        return;
+                    }
+                    ids.append(post.id);
+                    observed.append(post.tags);
+                }
+                const auto pageKey = fingerprint.join(',');
+                if (!pageKey.isEmpty() && pageKey == m_lastPage) {
+                    emit error({ErrorKind::InvalidData,
+                                tr("The server repeated a search page. Discovery stopped rather than looping.")});
                     emit loadingChanged(false);
                     return;
                 }
-                ids.append(post.id);
-                observed.append(post.tags);
-            }
-            const auto pageKey = fingerprint.join(',');
-            if (!pageKey.isEmpty() && pageKey == m_lastPage) {
-                emit error({ErrorKind::InvalidData, tr("The server repeated a search page. Discovery stopped rather than looping.")});
-                emit loadingChanged(false);
-                return;
-            }
-            m_lastPage = pageKey;
-            int remaining = target - m_db->queueSize(m_session.id);
-            remaining -= m_db->appendQueue(m_session.id, uniqueIds(ids), remaining);
-            observed.removeDuplicates();
-            m_db->observeTags(m_session.instanceId, observed);
-            if (m_provider->instance().kind == ProviderKind::Danbooru && result.value->more
-                && (result.value->nextCursor.isEmpty() || result.value->nextCursor == m_session.cursor)) {
-                emit error({ErrorKind::InvalidData, tr("The server did not provide a progressing ID cursor.")});
-                emit loadingChanged(false);
-                return;
-            }
-            m_session.cursor = result.value->nextCursor;
-            m_session.offset += result.value->posts.size();
-            m_db->updateSession(m_session);
-            progress();
-            if (!result.value->more || remaining < 1) {
-                finishDiscovery();
-            } else {
-                QTimer::singleShot(80, this, [this, epoch] {
-                    if (epoch == m_epoch)
-                        safely([this] { discover(); });
-                });
-            }
+                m_lastPage = pageKey;
+                int remaining = target - m_db->queueSize(m_session.id);
+                remaining -= m_db->appendQueue(m_session.id, uniqueIds(ids), remaining);
+                observed.removeDuplicates();
+                m_db->observeTags(m_session.instanceId, observed);
+                if (m_provider->instance().kind == ProviderKind::Danbooru && result.value->more &&
+                    (result.value->nextCursor.isEmpty() || result.value->nextCursor == m_session.cursor)) {
+                    emit error({ErrorKind::InvalidData, tr("The server did not provide a progressing ID cursor.")});
+                    emit loadingChanged(false);
+                    return;
+                }
+                m_session.cursor = result.value->nextCursor;
+                m_session.offset += result.value->posts.size();
+                m_db->updateSession(m_session);
+                progress();
+                if (!result.value->more || remaining < 1) {
+                    finishDiscovery();
+                } else {
+                    QTimer::singleShot(80, this, [this, epoch] {
+                        if (epoch == m_epoch)
+                            safely([this] { discover(); });
+                    });
+                }
+            });
         });
-    });
 }
 
 void SessionEngine::useDiscoveredQueue()
@@ -238,7 +249,15 @@ void SessionEngine::finishDiscovery()
     if (m_session.source == Source::Range && m_provider->instance().kind == ProviderKind::Danbooru) {
         const auto total = idRange(m_session.firstId, m_session.lastId).size();
         const auto found = m_db->queueSize(m_session.id);
-        emit status(tr("Range queued: %1 posts; %2 missing, deleted, or inaccessible IDs were not returned.").arg(found).arg(total - found));
+        emit status(tr("Range queued: %1 posts; %2 missing, deleted, or inaccessible IDs were not returned.")
+                        .arg(found)
+                        .arg(total - found));
+        emit queueSummary(tr("Range: %1 queued · %2 missing, deleted, or inaccessible IDs not returned.")
+                              .arg(found)
+                              .arg(total - found));
+    } else {
+        emit queueSummary(tr("%1 post IDs stored. Queue progression no longer depends on changing search results.")
+                              .arg(m_db->queueSize(m_session.id)));
     }
     loadCurrent();
 }
@@ -269,32 +288,37 @@ void SessionEngine::loadCurrent()
     const auto token = m_loadToken;
     const auto epoch = m_epoch;
     emit status(tr("Loading post #%1…").arg(entry->postId));
-    m_provider->fetchPost(entry->postId, [this, token, epoch, entry](Result<Post> result) {
-        if (token != m_loadToken || epoch != m_epoch)
-            return;
-        safely([&] {
-            if (!result) {
-                emit loadingChanged(false);
-                if ((result.error.kind == ErrorKind::Missing || result.error.kind == ErrorKind::Permission)
-                    && !m_draft.changes.dirty() && !m_draft.hasIntended) {
-                    m_db->markQueue(m_session.id, entry->postId, "skipped", result.error.message);
-                    emit status(tr("Skipped #%1: %2").arg(entry->postId).arg(result.error.message));
-                    m_session.current = m_db->nextPending(m_session.id, m_session.current);
-                    m_db->updateSession(m_session);
-                    QTimer::singleShot(0, this, [this, epoch] { if (epoch == m_epoch) safely([this] { loadCurrent(); }); });
-                } else {
-                    emit error(result.error);
+    m_provider->fetchPost(
+        entry->postId, [this, guard = QPointer<SessionEngine>(this), token, epoch, entry](Result<Post> result) {
+            if (!guard || token != m_loadToken || epoch != m_epoch)
+                return;
+            safely([&] {
+                if (!result) {
+                    emit loadingChanged(false);
+                    if ((result.error.kind == ErrorKind::Missing || result.error.kind == ErrorKind::Permission) &&
+                        !m_draft.changes.dirty() && !m_draft.hasIntended) {
+                        m_db->markQueue(m_session.id, entry->postId, "skipped", result.error.message);
+                        emit status(tr("Skipped #%1: %2").arg(entry->postId).arg(result.error.message));
+                        emit postSkipped(entry->postId, result.error.message);
+                        m_session.current = m_db->nextPending(m_session.id, m_session.current);
+                        m_db->updateSession(m_session);
+                        QTimer::singleShot(0, this, [this, epoch] {
+                            if (epoch == m_epoch)
+                                safely([this] { loadCurrent(); });
+                        });
+                    } else {
+                        emit error(result.error);
+                    }
+                    return;
                 }
-                return;
-            }
-            if (result.value->id != entry->postId) {
-                emit error({ErrorKind::InvalidData, tr("Ignored a response for another post.")});
-                emit loadingChanged(false);
-                return;
-            }
-            acceptPost(*result.value);
+                if (result.value->id != entry->postId) {
+                    emit error({ErrorKind::InvalidData, tr("Ignored a response for another post.")});
+                    emit loadingChanged(false);
+                    return;
+                }
+                acceptPost(*result.value);
+            });
         });
-    });
 }
 
 void SessionEngine::acceptPost(const Post &post)
@@ -303,10 +327,14 @@ void SessionEngine::acceptPost(const Post &post)
     if (post.deleted && !m_draft.changes.dirty() && !m_draft.hasIntended) {
         m_db->markQueue(m_session.id, post.id, "skipped", "deleted");
         emit status(tr("Skipped deleted post #%1.").arg(post.id));
+        emit postSkipped(post.id, tr("Deleted post."));
         m_session.current = m_db->nextPending(m_session.id, m_session.current);
         m_db->updateSession(m_session);
         const auto epoch = m_epoch;
-        QTimer::singleShot(0, this, [this, epoch] { if (epoch == m_epoch) safely([this] { loadCurrent(); }); });
+        QTimer::singleShot(0, this, [this, epoch] {
+            if (epoch == m_epoch)
+                safely([this] { loadCurrent(); });
+        });
         return;
     }
     if (!m_db->draft(m_session.id, post.id))
@@ -322,6 +350,8 @@ void SessionEngine::acceptPost(const Post &post)
     emit loadingChanged(false);
     if (m_state == SubmissionState::Uncertain)
         emit status(tr("A previous submission needs verification. Press Save to check it before editing."));
+    else
+        emit status(tr("Post #%1 ready. Drafts are saved locally.").arg(post.id));
     prefetch();
 }
 
@@ -331,8 +361,8 @@ void SessionEngine::prefetch()
     for (const auto &entry : m_db->queueEntries(m_session.id, m_session.current + 1, 3)) {
         if (m_prefetched.contains(entry.postId))
             continue;
-        m_provider->fetchPost(entry.postId, [this, epoch](Result<Post> result) {
-            if (epoch != m_epoch || !result)
+        m_provider->fetchPost(entry.postId, [this, guard = QPointer<SessionEngine>(this), epoch](Result<Post> result) {
+            if (!guard || epoch != m_epoch || !result)
                 return;
             safely([&] {
                 m_prefetched.insert(result.value->id, new Post(*result.value));
@@ -375,7 +405,10 @@ void SessionEngine::progress()
     emit progressChanged(qMin(m_session.current + 1, total), total, m_db->doneCount(m_session.id));
 }
 
-void SessionEngine::previous() { jump(qMax(0, m_session.current - 1)); }
+void SessionEngine::previous()
+{
+    jump(qMax(0, m_session.current - 1));
+}
 
 void SessionEngine::skip()
 {
@@ -383,8 +416,10 @@ void SessionEngine::skip()
         return;
     safely([&] {
         const auto entry = m_db->queueEntry(m_session.id, m_session.current);
-        if (entry && entry->status != "completed")
+        if (entry && entry->status != "completed") {
             m_db->markQueue(m_session.id, entry->postId, "skipped");
+            emit postSkipped(entry->postId, tr("Skipped locally. Draft kept; no edit submitted."));
+        }
         jump(m_db->nextPending(m_session.id, m_session.current));
     });
 }
@@ -430,8 +465,8 @@ void SessionEngine::save(bool advance)
         transition(SubmissionState::Pending);
         const auto epoch = m_epoch;
         emit status(tr("Checking the latest tags before saving…"));
-        m_provider->fetchPost(m_post.id, [this, epoch](Result<Post> result) {
-            if (epoch != m_epoch)
+        m_provider->fetchPost(m_post.id, [this, guard = QPointer<SessionEngine>(this), epoch](Result<Post> result) {
+            if (!guard || epoch != m_epoch)
                 return;
             safely([&] {
                 if (!result) {
@@ -482,52 +517,56 @@ void SessionEngine::submitMerged()
     transition(SubmissionState::Submitting);
     emit status(tr("Submitting tags for #%1…").arg(m_post.id));
     const auto epoch = m_epoch;
-    m_provider->updateTags(m_post.id, m_draft.intended, m_draft.baseline, [this, epoch](Result<bool> result) {
-        if (epoch != m_epoch)
-            return;
-        safely([&] {
-            if (!result || !*result.value) {
-                const auto error = result ? Error{ErrorKind::Other, tr("The provider did not confirm the write.")} : result.error;
-                if (error.uncertain) {
-                    m_draft.error = error.message;
-                    transition(SubmissionState::Confirming);
-                    emit status(tr("The write response was interrupted. Checking the post before any retry…"));
-                    verify(true);
-                } else {
-                    fail(error);
-                }
+    m_provider->updateTags(
+        m_post.id, m_draft.intended, m_draft.baseline,
+        [this, guard = QPointer<SessionEngine>(this), epoch](Result<bool> result) {
+            if (!guard || epoch != m_epoch)
                 return;
-            }
-            transition(SubmissionState::Confirming);
-            verify(false);
+            safely([&] {
+                if (!result || !*result.value) {
+                    const auto error =
+                        result ? Error{ErrorKind::Other, tr("The provider did not confirm the write.")} : result.error;
+                    if (error.uncertain) {
+                        m_draft.error = error.message;
+                        transition(SubmissionState::Confirming);
+                        emit status(tr("The write response was interrupted. Checking the post before any retry…"));
+                        verify(true);
+                    } else {
+                        fail(error);
+                    }
+                    return;
+                }
+                transition(SubmissionState::Confirming);
+                verify(false);
+            });
         });
-    });
 }
 
 void SessionEngine::verify(bool uncertainWrite)
 {
     const auto epoch = m_epoch;
-    m_provider->fetchPost(m_post.id, [this, epoch, uncertainWrite](Result<Post> result) {
-        if (epoch != m_epoch)
-            return;
-        safely([&] {
-            if (!result) {
-                fail(result.error, true);
+    m_provider->fetchPost(
+        m_post.id, [this, guard = QPointer<SessionEngine>(this), epoch, uncertainWrite](Result<Post> result) {
+            if (!guard || epoch != m_epoch)
                 return;
-            }
-            if (result.value->id != m_post.id) {
-                fail({ErrorKind::InvalidData, tr("Verification returned a different post.")}, true);
-                return;
-            }
-            if (tagSet(result.value->tags) == m_draft.intended) {
-                complete(*result.value);
-            } else {
-                m_latest = *result.value;
-                transition(SubmissionState::Reviewing);
-                emit verificationMismatch(m_draft.intended, m_latest, uncertainWrite);
-            }
+            safely([&] {
+                if (!result) {
+                    fail(result.error, true);
+                    return;
+                }
+                if (result.value->id != m_post.id) {
+                    fail({ErrorKind::InvalidData, tr("Verification returned a different post.")}, true);
+                    return;
+                }
+                if (tagSet(result.value->tags) == m_draft.intended) {
+                    complete(*result.value);
+                } else {
+                    m_latest = *result.value;
+                    transition(SubmissionState::Reviewing);
+                    emit verificationMismatch(m_draft.intended, m_latest, uncertainWrite);
+                }
+            });
         });
-    });
 }
 
 void SessionEngine::resolveVerification(VerificationDecision decision)
@@ -540,10 +579,12 @@ void SessionEngine::resolveVerification(VerificationDecision decision)
         } else if (decision == VerificationDecision::AllowRetry) {
             m_draft.hasIntended = false;
             transition(SubmissionState::Editing);
-            emit status(tr("Draft kept. Review the tags, then Save to make a new attempt using a fresh server snapshot."));
+            emit status(
+                tr("Draft kept. Review the tags, then Save to make a new attempt using a fresh server snapshot."));
         } else {
             transition(SubmissionState::Uncertain);
-            emit status(tr("Submission remains uncertain. The draft is safe; no write will be repeated automatically."));
+            emit status(
+                tr("Submission remains uncertain. The draft is safe; no write will be repeated automatically."));
         }
     });
 }
@@ -576,8 +617,9 @@ void SessionEngine::fail(Error error, bool uncertain)
     m_db->markQueue(m_session.id, m_post.id, "failed", error.message);
     m_db->recordHistory(m_session, m_post.id, m_draft, {}, uncertain ? "uncertain" : "failed");
     emit this->error(error);
-    emit status(uncertain ? tr("Submission is uncertain. Save checks the server before retrying; the draft is preserved.")
-                          : tr("Save failed. The draft is preserved and the queue has not advanced."));
+    emit status(uncertain
+                    ? tr("Submission is uncertain. Save checks the server before retrying; the draft is preserved.")
+                    : tr("Save failed. The draft is preserved and the queue has not advanced."));
 }
 
-}
+} // namespace bt

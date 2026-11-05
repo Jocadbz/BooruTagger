@@ -27,7 +27,7 @@ struct SearchPage {
 
 class BooruProvider : public QObject {
     Q_OBJECT
-public:
+  public:
     explicit BooruProvider(Instance instance, QObject *parent = nullptr);
     virtual void authenticate(const QString &secret, Callback<AuthInfo> callback) = 0;
     virtual void fetchPost(qint64 id, Callback<Post> callback) = 0;
@@ -40,14 +40,16 @@ public:
     const Instance &instance() const { return m_http.instance(); }
     HttpClient *http() { return &m_http; }
     bool authenticated() const { return m_authenticated; }
-signals:
+  signals:
     void status(const QString &message);
-protected:
+
+  protected:
     void writeLater(std::function<void()> operation);
     HttpClient m_http;
     bool m_authenticated = false;
     quint64 m_generation = 0;
-private:
+
+  private:
     QTimer m_writeTimer;
     QDateTime m_nextWrite;
     std::function<void()> m_write;
@@ -57,4 +59,4 @@ BooruProvider *createProvider(const Instance &instance, QObject *parent);
 Result<QJsonDocument> parseJson(const QByteArray &body);
 qint64 jsonId(const QJsonValue &value);
 
-}
+} // namespace bt

@@ -27,6 +27,6 @@ TagMerge mergeTags(const TagChanges &changes, const QSet<QString> &latest);
 QList<qint64> idRange(qint64 first, qint64 last, qsizetype maximum = 100000);
 QList<qint64> uniqueIds(const QList<qint64> &ids);
 
-}
+} // namespace bt
 
 Q_DECLARE_METATYPE(bt::TagChanges)

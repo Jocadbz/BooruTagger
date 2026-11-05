@@ -4,8 +4,8 @@
 #include <QCompleter>
 #include <QDialog>
 #include <QDialogButtonBox>
-#include <QLabel>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPlainTextEdit>
@@ -17,12 +17,15 @@
 namespace bt {
 namespace {
 class TagCommand : public QUndoCommand {
-public:
+  public:
     TagCommand(std::function<void(const TagChanges &)> apply, TagChanges before, TagChanges after)
-        : m_apply(std::move(apply)), m_before(std::move(before)), m_after(std::move(after)) {}
+        : m_apply(std::move(apply)), m_before(std::move(before)), m_after(std::move(after))
+    {
+    }
     void undo() override { m_apply(m_before); }
     void redo() override { m_apply(m_after); }
-private:
+
+  private:
     std::function<void(const TagChanges &)> m_apply;
     TagChanges m_before;
     TagChanges m_after;
@@ -31,17 +34,25 @@ private:
 QString categoryName(int category)
 {
     switch (category) {
-    case 0: return QStringLiteral("general");
-    case 1: return QStringLiteral("artist");
-    case 3: return QStringLiteral("copyright");
-    case 4: return QStringLiteral("character");
-    case 5: return QStringLiteral("meta");
-    default: return QString::number(category);
+    case 0:
+        return QStringLiteral("general");
+    case 1:
+        return QStringLiteral("artist");
+    case 3:
+        return QStringLiteral("copyright");
+    case 4:
+        return QStringLiteral("character");
+    case 5:
+        return QStringLiteral("meta");
+    default:
+        return QString::number(category);
     }
 }
-}
+} // namespace
 
-SuggestionModel::SuggestionModel(QObject *parent) : QAbstractListModel(parent) {}
+SuggestionModel::SuggestionModel(QObject *parent) : QAbstractListModel(parent)
+{
+}
 
 int SuggestionModel::rowCount(const QModelIndex &parent) const
 {
@@ -122,9 +133,7 @@ TagEditor::TagEditor(QWidget *parent) : QWidget(parent)
     m_input->setCompleter(m_completer);
     m_input->installEventFilter(this);
     m_completer->popup()->installEventFilter(this);
-    connect(m_input, &QLineEdit::textEdited, this, [this](const QString &text) {
-        emit prefixChanged(text.trimmed());
-    });
+    connect(m_input, &QLineEdit::textEdited, this, [this](const QString &text) { emit prefixChanged(text.trimmed()); });
     connect(m_completer, qOverload<const QString &>(&QCompleter::activated), this, [this](const QString &tag) {
         addText(tag);
         m_input->clear();
@@ -141,7 +150,12 @@ TagEditor::TagEditor(QWidget *parent) : QWidget(parent)
             return;
         const auto name = item->data(Qt::UserRole).toString();
         const bool wasRemoval = m_changes.removed.contains(name);
-        edit([&](TagChanges &c) { if (wasRemoval) c.add(name); else c.remove(name); });
+        edit([&](TagChanges &c) {
+            if (wasRemoval)
+                c.add(name);
+            else
+                c.remove(name);
+        });
     });
 }
 
@@ -235,7 +249,10 @@ void TagEditor::edit(const std::function<void(TagChanges &)> &operation)
 void TagEditor::addText(const QString &text)
 {
     const auto tags = splitTags(text, m_kind);
-    edit([&](TagChanges &c) { for (const auto &tag : tags) c.add(tag); });
+    edit([&](TagChanges &c) {
+        for (const auto &tag : tags)
+            c.add(tag);
+    });
 }
 
 void TagEditor::commitInput()
@@ -251,7 +268,10 @@ void TagEditor::removeSelected()
     QStringList selected;
     for (auto *item : m_tags->selectedItems())
         selected.append(item->text());
-    edit([&](TagChanges &c) { for (const auto &tag : selected) c.remove(tag); });
+    edit([&](TagChanges &c) {
+        for (const auto &tag : selected)
+            c.remove(tag);
+    });
 }
 
 void TagEditor::replaceAll()
@@ -287,8 +307,17 @@ void TagEditor::setSuggestions(const QList<TagSuggestion> &suggestions)
     }
 }
 
-void TagEditor::focusInput() { m_input->setFocus(); }
-void TagEditor::undo() { m_undo->undo(); }
-void TagEditor::redo() { m_undo->redo(); }
-
+void TagEditor::focusInput()
+{
+    m_input->setFocus();
 }
+void TagEditor::undo()
+{
+    m_undo->undo();
+}
+void TagEditor::redo()
+{
+    m_undo->redo();
+}
+
+} // namespace bt

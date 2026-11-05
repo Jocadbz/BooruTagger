@@ -23,12 +23,14 @@ class TagEditor;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
-public:
+  public:
     explicit MainWindow(QWidget *parent = nullptr, const QString &databasePath = {});
     ~MainWindow() override;
-protected:
+
+  protected:
     void closeEvent(QCloseEvent *event) override;
-private:
+
+  private:
     void buildUi();
     void connectEngine();
     void refreshInstances(const QString &selected = {});
@@ -46,6 +48,7 @@ private:
     void history();
     void rebuildPresets();
     void savePreset();
+    bool exportDraft();
     void guarded(const std::function<void()> &operation);
     std::unique_ptr<Database> m_db;
     SessionEngine *m_engine = nullptr;
@@ -62,6 +65,7 @@ private:
     QLabel *m_progress;
     QLabel *m_state;
     QLabel *m_error;
+    QLabel *m_notice;
     QProgressBar *m_progressBar;
     QMenu *m_presets;
     QAction *m_addInstance;
@@ -78,8 +82,9 @@ private:
     QList<QAction *> m_tagActions;
     bool m_syncing = false;
     bool m_loading = false;
+    QString m_noticeSession;
 };
 
 void applyAppearance(bool dark);
 
-}
+} // namespace bt

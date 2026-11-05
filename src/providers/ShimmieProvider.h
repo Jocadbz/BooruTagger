@@ -7,7 +7,7 @@ namespace bt {
 
 class ShimmieProvider : public BooruProvider {
     Q_OBJECT
-public:
+  public:
     using BooruProvider::BooruProvider;
     void authenticate(const QString &secret, Callback<AuthInfo> callback) override;
     void fetchPost(qint64 id, Callback<Post> callback) override;
@@ -18,12 +18,15 @@ public:
     bool remoteAutocomplete() const override { return false; }
     static Result<QJsonObject> parseEnvelope(const QByteArray &body);
     static Result<Post> parsePost(const QJsonObject &object, const QUrl &base);
-private:
-    void graphql(const QString &query, const QJsonObject &variables, Callback<QJsonObject> callback, bool login = false);
+
+  private:
+    void graphql(const QString &query, const QJsonObject &variables, Callback<QJsonObject> callback,
+                 bool login = false);
     void detectSchema(std::function<void()> callback);
-    QJsonObject operation(const QString &field, const QJsonObject &arguments, const QString &selection, bool mutation) const;
+    QJsonObject operation(const QString &field, const QJsonObject &arguments, const QString &selection,
+                          bool mutation) const;
     QHash<QString, QString> m_argumentTypes;
     bool m_schemaChecked = false;
 };
 
-}
+} // namespace bt

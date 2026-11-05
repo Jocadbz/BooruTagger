@@ -19,7 +19,9 @@ bool Credentials::secureStorageBuiltIn()
 void Credentials::load(const QString &instanceId, Callback<QString> callback)
 {
     if (m_memory.contains(instanceId)) {
-        QMetaObject::invokeMethod(this, [this, instanceId, callback] { callback(Result<QString>::success(m_memory.value(instanceId))); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(
+            this, [this, instanceId, callback] { callback(Result<QString>::success(m_memory.value(instanceId))); },
+            Qt::QueuedConnection);
         return;
     }
     if (!QSettings().value("credentials/remember/" + instanceId, false).toBool()) {
@@ -37,7 +39,8 @@ void Credentials::load(const QString &instanceId, Callback<QString> callback)
         } else if (job->error() == QKeychain::EntryNotFound) {
             callback(Result<QString>::success({}));
         } else {
-            callback(Result<QString>::failure({ErrorKind::Other, tr("The OS keychain is unavailable. You can sign in for this run only.")}));
+            callback(Result<QString>::failure(
+                {ErrorKind::Other, tr("The OS keychain is unavailable. You can sign in for this run only.")}));
         }
     });
     job->start();
@@ -51,7 +54,8 @@ void Credentials::store(const QString &instanceId, const QString &secret, bool p
     m_memory.insert(instanceId, secret);
     if (!persist) {
         if (!QSettings().value("credentials/remember/" + instanceId, false).toBool()) {
-            QMetaObject::invokeMethod(this, [callback] { callback(Result<bool>::success(true)); }, Qt::QueuedConnection);
+            QMetaObject::invokeMethod(
+                this, [callback] { callback(Result<bool>::success(true)); }, Qt::QueuedConnection);
             return;
         }
         forget(instanceId, [this, instanceId, secret, callback](Result<bool> result) {
@@ -69,13 +73,19 @@ void Credentials::store(const QString &instanceId, const QString &secret, bool p
         if (job->error() == QKeychain::NoError)
             callback(Result<bool>::success(true));
         else
-            callback(Result<bool>::failure({ErrorKind::Other, tr("The keychain could not save the credential. It is kept in memory for this run only.")}));
+            callback(Result<bool>::failure(
+                {ErrorKind::Other,
+                 tr("The keychain could not save the credential. It is kept in memory for this run only.")}));
     });
     job->start();
 #else
-    QMetaObject::invokeMethod(this, [callback] {
-        callback(Result<bool>::failure({ErrorKind::Other, tr("This build has no OS keychain support. Credentials are kept in memory only.")}));
-    }, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(
+        this,
+        [callback] {
+            callback(Result<bool>::failure(
+                {ErrorKind::Other, tr("This build has no OS keychain support. Credentials are kept in memory only.")}));
+        },
+        Qt::QueuedConnection);
 #endif
 }
 
@@ -90,7 +100,8 @@ void Credentials::forget(const QString &instanceId, Callback<bool> callback)
         if (job->error() == QKeychain::NoError || job->error() == QKeychain::EntryNotFound)
             callback(Result<bool>::success(true));
         else
-            callback(Result<bool>::failure({ErrorKind::Other, tr("Could not remove a previously saved keychain entry. Remove it in your OS keychain if necessary.")}));
+            callback(Result<bool>::failure({ErrorKind::Other, tr("Could not remove a previously saved keychain entry. "
+                                                                 "Remove it in your OS keychain if necessary.")}));
     });
     job->start();
 #else
@@ -98,4 +109,4 @@ void Credentials::forget(const QString &instanceId, Callback<bool> callback)
 #endif
 }
 
-}
+} // namespace bt

@@ -1,16 +1,17 @@
 #include "media/MpvWidget.h"
+#include <QApplication>
 #include <QProcess>
 #include <QStandardPaths>
 #include <QTemporaryDir>
-#include <QApplication>
 #include <QtTest>
 
 using namespace bt;
 
 class MpvTests : public QObject {
     Q_OBJECT
-private slots:
-    void localPlayback() {
+  private slots:
+    void localPlayback()
+    {
         if (QApplication::platformName() == "offscreen" || QApplication::platformName() == "minimal")
             QSKIP("An X11 or Wayland display is needed for the OpenGL smoke test.");
         const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
@@ -19,8 +20,8 @@ private slots:
         QTemporaryDir directory;
         const auto file = directory.filePath("test.mp4");
         QProcess generator;
-        generator.start(ffmpeg, {"-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x240:r=24:d=3",
-                                "-c:v", "mpeg4", "-y", file});
+        generator.start(ffmpeg, {"-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x240:r=24:d=3", "-c:v", "mpeg4",
+                                 "-y", file});
         QVERIFY(generator.waitForFinished(15000));
         QCOMPARE(generator.exitCode(), 0);
         MpvWidget widget;
@@ -60,7 +61,8 @@ private slots:
 
 int main(int argc, char **argv)
 {
-    if (qEnvironmentVariableIsEmpty("DISPLAY") && qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY") && qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
+    if (qEnvironmentVariableIsEmpty("DISPLAY") && qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY") &&
+        qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
         qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication app(argc, argv);
     MpvTests tests;

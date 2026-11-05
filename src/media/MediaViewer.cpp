@@ -14,6 +14,7 @@
 #include <QStackedWidget>
 #include <QVBoxLayout>
 #include <QtConcurrent>
+#include <utility>
 
 namespace bt {
 namespace {
@@ -26,7 +27,7 @@ QString clockText(double value)
     const auto seconds = qMax(0, static_cast<int>(value));
     return QStringLiteral("%1:%2").arg(seconds / 60).arg(seconds % 60, 2, 10, QLatin1Char('0'));
 }
-}
+} // namespace
 
 MediaViewer::MediaViewer(QWidget *parent) : QWidget(parent)
 {
@@ -84,18 +85,21 @@ MediaViewer::MediaViewer(QWidget *parent) : QWidget(parent)
     connect(pause, &QPushButton::clicked, m_video, &MpvWidget::togglePause);
     connect(back, &QPushButton::clicked, this, [this] { m_video->frameStep(true); });
     connect(step, &QPushButton::clicked, this, [this] { m_video->frameStep(); });
-    connect(speed, &QComboBox::currentIndexChanged, this, [this, speed] { m_video->setSpeed(speed->currentData().toDouble()); });
+    connect(speed, &QComboBox::currentIndexChanged, this,
+            [this, speed] { m_video->setSpeed(speed->currentData().toDouble()); });
     connect(loop, &QCheckBox::toggled, m_video, &MpvWidget::setLoop);
     connect(mute, &QCheckBox::toggled, m_video, &MpvWidget::setMuted);
     connect(volume, &QSlider::valueChanged, m_video, &MpvWidget::setVolume);
-    connect(m_seek, &QSlider::sliderReleased, this, [this] { m_video->seek(m_duration * m_seek->value() / 10000.0, true); });
+    connect(m_seek, &QSlider::sliderReleased, this,
+            [this] { m_video->seek(m_duration * m_seek->value() / 10000.0, true); });
     connect(m_video, &MpvWidget::positionChanged, this, [this](double position) {
         if (!m_seek->isSliderDown())
             m_seek->setValue(m_duration > 0 ? qRound(position / m_duration * 10000) : 0);
         m_time->setText(clockText(position) + " / " + clockText(m_duration));
     });
     connect(m_video, &MpvWidget::durationChanged, this, [this](double duration) { m_duration = duration; });
-    connect(m_video, &MpvWidget::pauseChanged, this, [pause](bool paused) { pause->setText(paused ? tr("Play") : tr("Pause")); });
+    connect(m_video, &MpvWidget::pauseChanged, this,
+            [pause](bool paused) { pause->setText(paused ? tr("Play") : tr("Pause")); });
     connect(m_video, &MpvWidget::playbackError, this, &MediaViewer::mediaError);
 }
 
@@ -132,7 +136,9 @@ void MediaViewer::load(const Post &post, HttpClient *client)
         return;
     }
     if (isVideo(post.extension)) {
-        if (post.mediaUrl.scheme() != "https" && !(client->instance().allowHttp && post.mediaUrl.scheme() == "http")) {
+        if (!post.mediaUrl.userInfo().isEmpty() ||
+            (post.mediaUrl.scheme() != "https" &&
+             !(client->instance().allowHttp && post.mediaUrl.scheme() == "http"))) {
             m_message->setText(tr("The media URL uses an unsafe protocol."));
             return;
         }
@@ -148,17 +154,20 @@ void MediaViewer::load(const Post &post, HttpClient *client)
     }
     const auto generation = m_generation;
     QPointer<MediaViewer> guard(this);
-    m_download = client->send("GET", post.mediaUrl, {}, [this, guard, generation, key](Result<HttpResponse> response) {
-        if (!guard || generation != m_generation)
-            return;
-        m_download.clear();
-        if (!response) {
-            m_message->setText(response.error.message);
-            emit mediaError(response.error.message);
-            return;
-        }
-        decode(response.value->body, key, generation, false);
-    }, true);
+    m_download = client->send(
+        "GET", post.mediaUrl, {},
+        [this, guard, generation, key](Result<HttpResponse> response) {
+            if (!guard || generation != m_generation)
+                return;
+            m_download.clear();
+            if (!response) {
+                m_message->setText(response.error.message);
+                emit mediaError(response.error.message);
+                return;
+            }
+            decode(response.value->body, key, generation, false);
+        },
+        true);
 }
 
 void MediaViewer::decode(const QByteArray &bytes, const QString &key, quint64 generation, bool prefetch)
@@ -210,7 +219,13 @@ void MediaViewer::prefetch(const Post &post, HttpClient *client)
     client->send("GET", post.previewUrl, {}, [](Result<HttpResponse>) {}, true);
 }
 
-void MediaViewer::fit() { m_image->fit(); }
-void MediaViewer::actualSize() { m_image->actualSize(); }
-
+void MediaViewer::fit()
+{
+    m_image->fit();
 }
+void MediaViewer::actualSize()
+{
+    m_image->actualSize();
+}
+
+} // namespace bt

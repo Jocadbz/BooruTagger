@@ -6,7 +6,7 @@ namespace bt {
 
 class DanbooruProvider : public BooruProvider {
     Q_OBJECT
-public:
+  public:
     using BooruProvider::BooruProvider;
     void authenticate(const QString &secret, Callback<AuthInfo> callback) override;
     void fetchPost(qint64 id, Callback<Post> callback) override;
@@ -16,8 +16,9 @@ public:
                     Callback<bool> callback) override;
     bool remoteAutocomplete() const override { return true; }
     static Result<Post> parsePost(const QJsonObject &object, const QUrl &base);
-private:
+
+  private:
     void get(const QUrl &url, Callback<QJsonDocument> callback);
 };
 
-}
+} // namespace bt

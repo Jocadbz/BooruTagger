@@ -97,4 +97,7 @@ if(BUILD_TESTING)
     set_tests_properties(mpv PROPERTIES LABELS "rendering")
 endif()
 
-install(TARGETS boorutagger RUNTIME DESTINATION bin)
+include(GNUInstallDirs)
+install(TARGETS boorutagger RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES resources/boorutagger.desktop DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications)
+install(FILES resources/boorutagger.svg DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps)

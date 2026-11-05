@@ -1,9 +1,11 @@
 #pragma once
 
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QMap>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QUrl>
 #include <functional>
 
 struct FixtureRequest {
@@ -22,8 +24,9 @@ struct FixtureResponse {
 };
 
 class HttpFixture : public QTcpServer {
-public:
-    HttpFixture() {
+  public:
+    HttpFixture()
+    {
         listen(QHostAddress::LocalHost);
         connect(this, &QTcpServer::newConnection, this, [this] {
             while (hasPendingConnections()) {
@@ -57,7 +60,8 @@ public:
                         return;
                     }
                     QByteArray bytes = "HTTP/1.1 " + QByteArray::number(response.status) + " Fixture\r\n";
-                    bytes += "Content-Type: application/json\r\nConnection: close\r\nContent-Length: " + QByteArray::number(response.body.size()) + "\r\n";
+                    bytes += "Content-Type: application/json\r\nConnection: close\r\nContent-Length: " +
+                             QByteArray::number(response.body.size()) + "\r\n";
                     for (auto it = response.headers.begin(); it != response.headers.end(); ++it)
                         bytes += it.key() + ": " + it.value() + "\r\n";
                     socket->write(bytes + "\r\n" + response.body);
@@ -67,7 +71,10 @@ public:
             }
         });
     }
-    QUrl base(const QString &path = {}) const { return QUrl(QStringLiteral("http://127.0.0.1:%1%2").arg(serverPort()).arg(path)); }
+    QUrl base(const QString &path = {}) const
+    {
+        return QUrl(QStringLiteral("http://127.0.0.1:%1%2").arg(serverPort()).arg(path));
+    }
     QList<FixtureRequest> requests;
     std::function<FixtureResponse(const FixtureRequest &)> handler;
 };

@@ -13,11 +13,11 @@ struct HttpResponse {
 
 class HttpClient : public QObject {
     Q_OBJECT
-public:
+  public:
     explicit HttpClient(Instance instance, QObject *parent = nullptr);
     ~HttpClient() override;
     QNetworkReply *send(const QByteArray &method, const QUrl &url, const QByteArray &body,
-                       Callback<HttpResponse> callback, bool media = false, int redirects = 0);
+                        Callback<HttpResponse> callback, bool media = false, int redirects = 0);
     void setBasicAuth(const QString &username, const QString &secret);
     void setSessionCookies(const QString &username, const QString &session);
     void clearAuthentication();
@@ -28,9 +28,10 @@ public:
     QNetworkAccessManager *manager() { return &m_manager; }
     const Instance &instance() const { return m_instance; }
     QDateTime retryAt() const { return m_retryAt; }
-signals:
+  signals:
     void activity(const QString &message);
-private:
+
+  private:
     Instance m_instance;
     QNetworkAccessManager m_manager;
     QByteArray m_authorization;
@@ -40,4 +41,4 @@ private:
     qint64 m_accountId = 0;
 };
 
-}
+} // namespace bt

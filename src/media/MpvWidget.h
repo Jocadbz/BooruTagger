@@ -10,7 +10,7 @@ namespace bt {
 
 class MpvWidget : public QOpenGLWidget {
     Q_OBJECT
-public:
+  public:
     explicit MpvWidget(QWidget *parent = nullptr);
     ~MpvWidget() override;
     void load(const QUrl &url);
@@ -23,16 +23,18 @@ public:
     void setMuted(bool muted);
     void setVolume(int volume);
     bool available() const { return m_mpv != nullptr; }
-signals:
+  signals:
     void positionChanged(double position);
     void durationChanged(double duration);
     void pauseChanged(bool paused);
     void playbackError(const QString &message);
     void frameRendered();
-protected:
+
+  protected:
     void initializeGL() override;
     void paintGL() override;
-private:
+
+  private:
     void processEvents();
     void cleanupGL();
     void command(const QList<QByteArray> &args);
@@ -46,4 +48,4 @@ private:
     bool m_stopping = false;
 };
 
-}
+} // namespace bt
