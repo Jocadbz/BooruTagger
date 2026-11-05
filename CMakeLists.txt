@@ -31,16 +31,26 @@ add_library(booru_core
     src/sessions/Session.cpp
     src/sessions/SessionEngine.cpp
     src/sessions/SessionEngine.h
+    src/settings/Credentials.cpp
+    src/settings/Credentials.h
+    src/tagging/Completion.cpp
+    src/tagging/Completion.h
 )
 target_include_directories(booru_core PUBLIC src)
 target_link_libraries(booru_core PUBLIC Qt6::Core Qt6::Network Qt6::Sql)
 target_compile_definitions(booru_core PUBLIC BOORUTAGGER_VERSION="${PROJECT_VERSION}")
+if(TARGET qt6keychain)
+    target_link_libraries(booru_core PRIVATE qt6keychain)
+    target_compile_definitions(booru_core PUBLIC BOORUTAGGER_KEYCHAIN=1)
+endif()
 
 add_library(booru_widgets
     src/ui/TagEditor.cpp
     src/ui/TagEditor.h
     src/ui/MainWindow.cpp
     src/ui/MainWindow.h
+    src/ui/Dialogs.cpp
+    src/ui/Dialogs.h
     src/media/ImageView.cpp
     src/media/ImageView.h
     src/media/MpvWidget.cpp
@@ -71,6 +81,13 @@ if(BUILD_TESTING)
     add_executable(test_sessions tests/test_sessions.cpp)
     target_link_libraries(test_sessions PRIVATE booru_core Qt6::Test)
     add_test(NAME sessions COMMAND test_sessions)
+    add_executable(test_completion tests/test_completion.cpp)
+    target_link_libraries(test_completion PRIVATE booru_core Qt6::Test)
+    add_test(NAME completion COMMAND test_completion)
+    add_executable(test_workflow tests/test_workflow.cpp)
+    target_link_libraries(test_workflow PRIVATE booru_widgets Qt6::Test)
+    add_test(NAME workflow COMMAND test_workflow -platform offscreen)
+    set_tests_properties(workflow PROPERTIES TIMEOUT 45)
     add_executable(test_widgets tests/test_widgets.cpp)
     target_link_libraries(test_widgets PRIVATE booru_widgets Qt6::Test)
     add_test(NAME widgets COMMAND test_widgets -platform offscreen)

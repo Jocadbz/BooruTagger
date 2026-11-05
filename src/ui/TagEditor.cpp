@@ -5,6 +5,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QLabel>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPlainTextEdit>
@@ -119,6 +120,8 @@ TagEditor::TagEditor(QWidget *parent) : QWidget(parent)
     m_completer->setMaxVisibleItems(12);
     m_completer->setCaseSensitivity(Qt::CaseSensitive);
     m_input->setCompleter(m_completer);
+    m_input->installEventFilter(this);
+    m_completer->popup()->installEventFilter(this);
     connect(m_input, &QLineEdit::textEdited, this, [this](const QString &text) {
         emit prefixChanged(text.trimmed());
     });
@@ -134,6 +137,8 @@ TagEditor::TagEditor(QWidget *parent) : QWidget(parent)
     deleteKey->setContext(Qt::WidgetShortcut);
     connect(deleteKey, &QShortcut::activated, this, &TagEditor::removeSelected);
     connect(m_diff, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem *item) {
+        if (item->data(Qt::UserRole + 1).toBool())
+            return;
         const auto name = item->data(Qt::UserRole).toString();
         const bool wasRemoval = m_changes.removed.contains(name);
         edit([&](TagChanges &c) { if (wasRemoval) c.add(name); else c.remove(name); });
@@ -143,6 +148,7 @@ TagEditor::TagEditor(QWidget *parent) : QWidget(parent)
 void TagEditor::load(const TagChanges &changes, ProviderKind kind)
 {
     m_kind = kind;
+    m_removeTagmePreview = false;
     m_undo->clear();
     m_input->clear();
     m_completer->popup()->hide();
@@ -172,7 +178,50 @@ void TagEditor::apply(const TagChanges &changes)
         item->setData(Qt::UserRole, tag);
         item->setForeground(QColor(225, 130, 120));
     }
+    setRemoveTagmePreview(m_removeTagmePreview);
     emit changed();
+}
+
+void TagEditor::setRemoveTagmePreview(bool enabled)
+{
+    m_removeTagmePreview = enabled;
+    for (int i = m_diff->count() - 1; i >= 0; --i) {
+        if (m_diff->item(i)->data(Qt::UserRole + 1).toBool())
+            delete m_diff->takeItem(i);
+    }
+    if (enabled && m_changes.result().contains("tagme")) {
+        auto *item = new QListWidgetItem(tr("− tagme (on save, confirmed finished)"), m_diff);
+        item->setData(Qt::UserRole + 1, true);
+        item->setForeground(QColor(225, 130, 120));
+    }
+}
+
+bool TagEditor::eventFilter(QObject *object, QEvent *event)
+{
+    if ((object == m_input || object == m_completer->popup()) && event->type() == QEvent::KeyPress) {
+        auto *key = static_cast<QKeyEvent *>(event);
+        if (key->key() == Qt::Key_Escape && m_completer->popup()->isVisible()) {
+            m_completer->popup()->hide();
+            return true;
+        }
+        const bool accept = key->key() == Qt::Key_Tab || key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter;
+        if (accept && key->modifiers() == Qt::NoModifier && m_completer->popup()->isVisible()) {
+            auto index = m_completer->popup()->currentIndex();
+            if (!index.isValid())
+                index = m_completer->completionModel()->index(0, 0);
+            addText(index.data(Qt::EditRole).toString());
+            m_input->clear();
+            m_completer->popup()->hide();
+            m_input->setFocus();
+            emit prefixChanged({});
+            return true;
+        }
+        if (key->key() == Qt::Key_Tab && key->modifiers() == Qt::NoModifier && !m_input->text().isEmpty()) {
+            commitInput();
+            return true;
+        }
+    }
+    return QWidget::eventFilter(object, event);
 }
 
 void TagEditor::edit(const std::function<void(TagChanges &)> &operation)

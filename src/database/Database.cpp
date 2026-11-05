@@ -285,6 +285,12 @@ std::optional<Draft> Database::draft(const QString &sessionId, qint64 postId) co
     return d;
 }
 
+bool Database::hasPendingDrafts(const QString &sessionId) const
+{
+    auto q = run("SELECT 1 FROM drafts WHERE session_id=? AND (added!='[]' OR removed!='[]' OR has_intended=1 OR sufficient=1) LIMIT 1", {sessionId});
+    return q.next();
+}
+
 void Database::complete(Session &s, qint64 postId, const Draft &d, const QSet<QString> &actual, bool advance)
 {
     auto next = s;

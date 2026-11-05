@@ -1,6 +1,11 @@
 #include "ui/MainWindow.h"
 
 #include <QApplication>
+#include <QDir>
+#include <QLockFile>
+#include <QMessageBox>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QSurfaceFormat>
 
 int main(int argc, char **argv)
@@ -13,7 +18,20 @@ int main(int argc, char **argv)
     QCoreApplication::setOrganizationName("BooruTagger");
     QCoreApplication::setApplicationName("BooruTagger");
     QCoreApplication::setApplicationVersion(BOORUTAGGER_VERSION);
-    bt::MainWindow window;
-    window.show();
-    return app.exec();
+    const auto data = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(data);
+    QLockFile lock(data + "/boorutagger.lock");
+    if (!lock.tryLock(0)) {
+        QMessageBox::warning(nullptr, "BooruTagger", "Another BooruTagger is already using this data directory.");
+        return 1;
+    }
+    bt::applyAppearance(QSettings().value("appearance/dark", true).toBool());
+    try {
+        bt::MainWindow window;
+        window.show();
+        return app.exec();
+    } catch (const std::exception &error) {
+        QMessageBox::critical(nullptr, "BooruTagger", QString::fromUtf8(error.what()));
+        return 1;
+    }
 }

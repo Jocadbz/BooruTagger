@@ -2,6 +2,7 @@
 #include <QProcess>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QApplication>
 #include <QtTest>
 
 using namespace bt;
@@ -10,7 +11,7 @@ class MpvTests : public QObject {
     Q_OBJECT
 private slots:
     void localPlayback() {
-        if (qEnvironmentVariableIsEmpty("DISPLAY") && qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY"))
+        if (QApplication::platformName() == "offscreen" || QApplication::platformName() == "minimal")
             QSKIP("An X11 or Wayland display is needed for the OpenGL smoke test.");
         const auto ffmpeg = QStandardPaths::findExecutable("ffmpeg");
         if (ffmpeg.isEmpty())
@@ -57,5 +58,12 @@ private slots:
     }
 };
 
-QTEST_MAIN(MpvTests)
+int main(int argc, char **argv)
+{
+    if (qEnvironmentVariableIsEmpty("DISPLAY") && qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY") && qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
+        qputenv("QT_QPA_PLATFORM", "offscreen");
+    QApplication app(argc, argv);
+    MpvTests tests;
+    return QTest::qExec(&tests, argc, argv);
+}
 #include "test_mpv.moc"

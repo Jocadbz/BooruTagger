@@ -90,6 +90,10 @@ QNetworkReply *HttpClient::send(const QByteArray &method, const QUrl &url, const
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
                          media ? QNetworkRequest::PreferCache : QNetworkRequest::AlwaysNetwork);
     request.setAttribute(QNetworkRequest::CacheSaveControlAttribute, media);
+    if (!local) {
+        request.setAttribute(QNetworkRequest::CookieLoadControlAttribute, QNetworkRequest::Manual);
+        request.setAttribute(QNetworkRequest::CookieSaveControlAttribute, QNetworkRequest::Manual);
+    }
     if (local && !m_authorization.isEmpty())
         request.setRawHeader("Authorization", m_authorization);
     if (!body.isEmpty())
@@ -97,6 +101,7 @@ QNetworkReply *HttpClient::send(const QByteArray &method, const QUrl &url, const
     // API redirects are rejected. Media redirects are followed only after rebuilding the request.
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
     auto *reply = m_manager.sendCustomRequest(request, method, body);
+    reply->setProperty("mediaRequest", media);
     m_replies.insert(reply);
     const qint64 maximum = media ? 64 * 1024 * 1024 : 16 * 1024 * 1024;
     auto bytes = std::make_shared<QByteArray>();
@@ -172,6 +177,15 @@ void HttpClient::cancelAll()
     const auto replies = m_replies;
     for (auto *reply : replies)
         reply->abort();
+}
+
+void HttpClient::cancelMedia()
+{
+    const auto replies = m_replies;
+    for (auto *reply : replies) {
+        if (reply->property("mediaRequest").toBool())
+            reply->abort();
+    }
 }
 
 }

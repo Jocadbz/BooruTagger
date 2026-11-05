@@ -23,6 +23,7 @@ public:
     void clearAuthentication();
     void setAccountId(qint64 id) { m_accountId = id; }
     void cancelAll();
+    void cancelMedia();
     QString redact(QString text) const;
     QNetworkAccessManager *manager() { return &m_manager; }
     const Instance &instance() const { return m_instance; }

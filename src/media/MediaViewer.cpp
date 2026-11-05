@@ -31,6 +31,7 @@ QString clockText(double value)
 MediaViewer::MediaViewer(QWidget *parent) : QWidget(parent)
 {
     QImageReader::setAllocationLimit(256);
+    m_decodePool.setMaxThreadCount(2);
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     m_stack = new QStackedWidget(this);
@@ -101,6 +102,8 @@ MediaViewer::MediaViewer(QWidget *parent) : QWidget(parent)
 MediaViewer::~MediaViewer()
 {
     ++m_generation;
+    if (m_client)
+        m_client->cancelMedia();
     if (m_download)
         m_download->abort();
 }
@@ -108,6 +111,9 @@ MediaViewer::~MediaViewer()
 void MediaViewer::clear(const QString &message)
 {
     ++m_generation;
+    m_pendingDecode.reset();
+    if (m_client)
+        m_client->cancelMedia();
     if (m_download)
         m_download->abort();
     m_download.clear();
@@ -120,6 +126,7 @@ void MediaViewer::clear(const QString &message)
 void MediaViewer::load(const Post &post, HttpClient *client)
 {
     clear(tr("Loading media…"));
+    m_client = client;
     if (post.mediaUrl.isEmpty()) {
         m_message->setText(tr("No accessible media URL. You can still edit this post's tags."));
         return;
@@ -156,10 +163,18 @@ void MediaViewer::load(const Post &post, HttpClient *client)
 
 void MediaViewer::decode(const QByteArray &bytes, const QString &key, quint64 generation, bool prefetch)
 {
+    if (m_decoding >= 2) {
+        m_pendingDecode = DecodeRequest{bytes, key, generation, prefetch};
+        return;
+    }
+    ++m_decoding;
     auto *watcher = new QFutureWatcher<QImage>(this);
     connect(watcher, &QFutureWatcher<QImage>::finished, this, [this, watcher, key, generation, prefetch] {
         const auto image = watcher->result();
         watcher->deleteLater();
+        --m_decoding;
+        if (auto pending = std::exchange(m_pendingDecode, std::nullopt))
+            decode(pending->bytes, pending->key, pending->generation, pending->prefetch);
         if (generation != m_generation)
             return;
         if (!image.isNull())
@@ -174,7 +189,7 @@ void MediaViewer::decode(const QByteArray &bytes, const QString &key, quint64 ge
             m_stack->setCurrentWidget(m_image);
         }
     });
-    watcher->setFuture(QtConcurrent::run([bytes] {
+    watcher->setFuture(QtConcurrent::run(&m_decodePool, [bytes] {
         QBuffer buffer;
         buffer.setData(bytes);
         buffer.open(QIODevice::ReadOnly);

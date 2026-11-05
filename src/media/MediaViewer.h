@@ -3,6 +3,7 @@
 #include "core/Types.h"
 #include <QCache>
 #include <QPointer>
+#include <QThreadPool>
 #include <QWidget>
 
 class QLabel;
@@ -39,6 +40,16 @@ private:
     double m_duration = 0;
     quint64 m_generation = 0;
     QPointer<QNetworkReply> m_download;
+    QPointer<HttpClient> m_client;
+    struct DecodeRequest {
+        QByteArray bytes;
+        QString key;
+        quint64 generation;
+        bool prefetch;
+    };
+    std::optional<DecodeRequest> m_pendingDecode;
+    QThreadPool m_decodePool;
+    int m_decoding = 0;
     QCache<QString, QImage> m_images{96 * 1024};
 };
 

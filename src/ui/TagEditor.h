@@ -35,14 +35,17 @@ public:
     void redo();
     void commitInput();
     void addText(const QString &text);
+    void setRemoveTagmePreview(bool enabled);
+    void replaceAll();
 signals:
     void changed();
     void prefixChanged(const QString &prefix);
+protected:
+    bool eventFilter(QObject *object, QEvent *event) override;
 private:
     void apply(const TagChanges &changes);
     void edit(const std::function<void(TagChanges &)> &operation);
     void removeSelected();
-    void replaceAll();
     TagChanges m_changes;
     ProviderKind m_kind = ProviderKind::Danbooru;
     QListWidget *m_tags;
@@ -52,6 +55,7 @@ private:
     QUndoStack *m_undo;
     QCompleter *m_completer;
     SuggestionModel *m_suggestions;
+    bool m_removeTagmePreview = false;
 };
 
 }

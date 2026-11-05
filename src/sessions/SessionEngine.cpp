@@ -426,8 +426,6 @@ void SessionEngine::save(bool advance)
             verify(true);
             return;
         }
-        if (m_session.removeTagme && m_draft.sufficient)
-            m_draft.changes.remove("tagme");
         m_draft.error.clear();
         transition(SubmissionState::Pending);
         const auto epoch = m_epoch;
@@ -445,7 +443,10 @@ void SessionEngine::save(bool advance)
                     return;
                 }
                 m_latest = *result.value;
-                m_merge = mergeTags(m_draft.changes, tagSet(m_latest.tags));
+                auto effective = m_draft.changes;
+                if (m_session.removeTagme && m_draft.sufficient)
+                    effective.remove("tagme");
+                m_merge = mergeTags(effective, tagSet(m_latest.tags));
                 if (m_merge.needsReview) {
                     transition(SubmissionState::Reviewing);
                     emit conflict(m_latest, m_draft.changes, m_merge);
