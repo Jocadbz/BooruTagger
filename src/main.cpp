@@ -7,7 +7,7 @@
 #include <QMessageBox>
 #include <QSettings>
 #include <QStandardPaths>
-#include <QStyle>
+#include <QIcon>
 #include <QSurfaceFormat>
 
 int main(int argc, char **argv)
@@ -33,8 +33,7 @@ int main(int argc, char **argv)
         return 1;
     }
     bt::applyAppearance(QSettings().value("appearance/dark", true).toBool());
-    QApplication::setWindowIcon(
-        QIcon::fromTheme("boorutagger", QApplication::style()->standardIcon(QStyle::SP_FileDialogDetailedView)));
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/icons/hieda.png")));
     try {
         bt::MainWindow window;
         window.show();

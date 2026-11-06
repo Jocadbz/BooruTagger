@@ -68,7 +68,7 @@ add_library(booru_widgets
 )
 target_link_libraries(booru_widgets PUBLIC booru_core Qt6::Widgets Qt6::OpenGLWidgets Qt6::OpenGL Qt6::Concurrent PkgConfig::MPV)
 
-add_executable(boorutagger src/main.cpp)
+add_executable(boorutagger src/main.cpp resources/boorutagger.qrc)
 target_link_libraries(boorutagger PRIVATE booru_widgets)
 
 foreach(target booru_core booru_widgets boorutagger)
@@ -116,4 +116,5 @@ endif()
 include(GNUInstallDirs)
 install(TARGETS boorutagger RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES resources/boorutagger.desktop DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications)
-install(FILES resources/boorutagger.svg DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps)
+install(FILES icon/hieda.png DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/256x256/apps
+        RENAME boorutagger.png)

@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/icons">
+    <file alias="hieda.png">../icon/hieda.png</file>
+  </qresource>
+</RCC>
