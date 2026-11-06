@@ -15,7 +15,9 @@ class ShimmieProvider : public BooruProvider {
     void searchTags(const QString &prefix, Callback<QList<TagSuggestion>> callback) override;
     void updateTags(qint64 id, const QSet<QString> &tags, const QSet<QString> &latest,
                     Callback<bool> callback) override;
-    bool remoteAutocomplete() const override { return false; }
+    bool remoteAutocomplete() const override { return true; }
+    bool prefetchTagIndex() const override { return true; }
+    void cancel() override;
     static Result<QJsonObject> parseEnvelope(const QByteArray &body);
     static Result<Post> parsePost(const QJsonObject &object, const QUrl &base);
 
@@ -37,6 +39,13 @@ class ShimmieProvider : public BooruProvider {
     bool m_schemaKnown = false;
     bool m_schemaRetryDone = false;
     bool m_schemaChecked = false;
+    QList<TagSuggestion> m_popularTags;
+    QList<Callback<QList<TagSuggestion>>> m_tagCallbacks;
+    QDateTime m_tagRetryAt;
+    Error m_tagLoadError;
+    quint64 m_tagLoadGeneration = 0;
+    bool m_tagIndexLoaded = false;
+    bool m_tagIndexLoading = false;
 };
 
 } // namespace bt

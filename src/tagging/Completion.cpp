@@ -39,13 +39,35 @@ Completion::Completion(Database *database, QObject *parent) : QObject(parent), m
 
 void Completion::setProvider(BooruProvider *provider)
 {
+    const bool sameProvider = m_provider == provider;
     ++m_sequence;
+    if (!sameProvider)
+        ++m_providerEpoch;
     m_debounce.stop();
     m_provider = provider;
     m_prefix.clear();
     m_current.clear();
     m_excluded.clear();
     emit suggestions({});
+    if (!provider || sameProvider || !provider->prefetchTagIndex())
+        return;
+
+    const auto providerEpoch = m_providerEpoch;
+    const auto instanceId = provider->instance().id;
+    QPointer<Completion> guard(this);
+    provider->searchTags({}, [this, guard, providerEpoch, instanceId](Result<QList<TagSuggestion>> result) {
+        if (!guard || providerEpoch != m_providerEpoch || !m_provider || m_provider->instance().id != instanceId)
+            return;
+        if (!result) {
+            emit warning(result.error.message);
+            return;
+        }
+        try {
+            m_db->cacheTags(instanceId, *result.value);
+        } catch (const std::exception &error) {
+            emit warning(tr("Popular tag cache could not be saved: %1").arg(QString::fromUtf8(error.what())));
+        }
+    });
 }
 
 void Completion::request(const QString &text)

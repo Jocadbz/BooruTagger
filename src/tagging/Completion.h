@@ -27,6 +27,7 @@ class Completion : public QObject {
     QString m_prefix;
     QSet<QString> m_excluded;
     QList<TagSuggestion> m_current;
+    quint64 m_providerEpoch = 0;
 };
 
 } // namespace bt

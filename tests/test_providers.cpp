@@ -133,7 +133,8 @@ class ProviderTests : public QObject {
         QVERIFY(mutation.contains("post_id:123"));
         QVERIFY(mutation.contains("key:\"tags\""));
         QVERIFY(!mutation.contains("source:"));
-        QVERIFY(!provider.remoteAutocomplete());
+        QVERIFY(provider.remoteAutocomplete());
+        QVERIFY(provider.prefetchTagIndex());
         QCOMPARE(provider.http()->redact("private-token"), QString("[redacted]"));
     }
     void shimmieVariables()
@@ -204,6 +205,43 @@ class ProviderTests : public QObject {
         QCOMPARE(query.queryItemValue("tags"), QString("tagme"));
         QCOMPARE(query.queryItemValue("limit"), QString("20"));
         QCOMPARE(query.queryItemValue("page"), QString("1"));
+    }
+    void shimmieLoadsPopularTags()
+    {
+        HttpFixture server;
+        server.handler = [](const FixtureRequest &request) -> FixtureResponse {
+            if (request.url.path().endsWith("/tag/index.json"))
+                return {
+                    200,
+                    R"([{"id":4,"name":"solo","count":234,"type":0,"ambiguous":false},{"id":5,"name":"tagme","count":98,"type":0,"ambiguous":false}])",
+                    {},
+                    false};
+            return {200, "[]", {}, false};
+        };
+        ShimmieProvider provider(
+            {"shm-popular", "test", ProviderKind::Shimmie, server.base("/gallery/"), "tester", true});
+        std::optional<Result<QList<TagSuggestion>>> tags;
+        provider.searchTags("solo", [&](auto result) { tags = result; });
+        QTRY_VERIFY(tags.has_value());
+        QVERIFY(*tags);
+        QCOMPARE(tags->value->size(), 2);
+        QCOMPARE(tags->value->first().name, QString("solo"));
+        QCOMPARE(tags->value->first().postCount.value(), 234);
+        QVERIFY(!tags->value->first().category);
+        const auto request = server.requests.first();
+        QCOMPARE(request.method, QByteArray("GET"));
+        QCOMPARE(request.url.path(), QString("/gallery/tag/index.json"));
+        const QUrlQuery query(request.url);
+        QCOMPARE(query.queryItemValue("order"), QString("count"));
+        QCOMPARE(query.queryItemValue("limit"), QString("200"));
+        QCOMPARE(query.queryItemValue("page"), QString("1"));
+
+        tags.reset();
+        provider.searchTags("tagme", [&](auto result) { tags = result; });
+        QTRY_VERIFY(tags.has_value());
+        QVERIFY(*tags);
+        QCOMPARE(server.requests.size(), 1);
+        QCOMPARE(tags->value->size(), 2);
     }
     void shimmieSinglePostSchema()
     {

@@ -423,8 +423,106 @@ void ShimmieProvider::fetchSinglePost(qint64 id, const QString &argumentName, Ca
 
 void ShimmieProvider::searchTags(const QString &, Callback<QList<TagSuggestion>> callback)
 {
-    QMetaObject::invokeMethod(
-        this, [callback] { callback(Result<QList<TagSuggestion>>::success({})); }, Qt::QueuedConnection);
+    if (m_tagIndexLoaded) {
+        const auto tags = m_popularTags;
+        QMetaObject::invokeMethod(
+            this, [callback, tags] { callback(Result<QList<TagSuggestion>>::success(tags)); }, Qt::QueuedConnection);
+        return;
+    }
+    if (m_tagIndexLoading) {
+        m_tagCallbacks.append(std::move(callback));
+        return;
+    }
+    if (m_tagRetryAt > QDateTime::currentDateTimeUtc()) {
+        const auto error = m_tagLoadError;
+        QMetaObject::invokeMethod(
+            this, [callback, error] { callback(Result<QList<TagSuggestion>>::failure(error)); }, Qt::QueuedConnection);
+        return;
+    }
+
+    m_tagIndexLoading = true;
+    m_tagCallbacks.append(std::move(callback));
+    const auto generation = ++m_tagLoadGeneration;
+    auto url = endpoint(instance().baseUrl, "tag/index.json");
+    QUrlQuery query;
+    query.addQueryItem("order", "count");
+    query.addQueryItem("limit", "200");
+    query.addQueryItem("page", "1");
+    url.setQuery(query);
+    m_http.send("GET", url, {}, [this, generation](Result<HttpResponse> response) {
+        if (generation != m_tagLoadGeneration)
+            return;
+        m_tagIndexLoading = false;
+        Result<QList<TagSuggestion>> result;
+        if (!response) {
+            auto error = response.error;
+            if (error.httpStatus == 404 || error.kind == ErrorKind::InvalidData || error.kind == ErrorKind::Missing) {
+                error.kind = ErrorKind::InvalidData;
+                error.message = tr("Shimmie's Ouroboros API is unavailable. Enable the ouroboros_api extension in "
+                                   "Shimmie's Extension Manager, then retry tag autocomplete.");
+            }
+            result = Result<QList<TagSuggestion>>::failure(error);
+        } else {
+            const auto document = parseJson(response.value->body);
+            if (!document || !document.value->isArray()) {
+                result = Result<QList<TagSuggestion>>::failure(
+                    {ErrorKind::InvalidData,
+                     tr("Shimmie's Ouroboros tag API did not return a tag list. Enable the ouroboros_api extension.")});
+            } else {
+                QList<TagSuggestion> tags;
+                for (const auto &value : document.value->array()) {
+                    if (!value.isObject())
+                        continue;
+                    const auto object = value.toObject();
+                    const auto name = object.value("name").toString();
+                    if (name.isEmpty())
+                        continue;
+                    TagSuggestion suggestion;
+                    suggestion.name = name;
+                    const auto count = object.value("count");
+                    if (count.isDouble())
+                        suggestion.postCount = count.toInteger();
+                    else if (count.isString()) {
+                        bool ok = false;
+                        const auto parsed = count.toString().toLongLong(&ok);
+                        if (ok)
+                            suggestion.postCount = parsed;
+                    }
+                    tags.append(suggestion);
+                    if (tags.size() == 200)
+                        break;
+                }
+                m_popularTags = tags;
+                m_tagIndexLoaded = true;
+                m_tagRetryAt = {};
+                m_tagLoadError = {};
+                result = Result<QList<TagSuggestion>>::success(std::move(tags));
+            }
+        }
+        if (!result) {
+            m_tagLoadError = result.error;
+            m_tagRetryAt = QDateTime::currentDateTimeUtc().addSecs(30);
+        }
+        auto callbacks = std::move(m_tagCallbacks);
+        m_tagCallbacks.clear();
+        for (auto &pending : callbacks)
+            pending(result);
+    });
+}
+
+void ShimmieProvider::cancel()
+{
+    ++m_tagLoadGeneration;
+    const bool hadTagRequests = m_tagIndexLoading;
+    m_tagIndexLoading = false;
+    auto callbacks = std::move(m_tagCallbacks);
+    m_tagCallbacks.clear();
+    BooruProvider::cancel();
+    if (hadTagRequests) {
+        const auto error = Error{ErrorKind::Cancelled, tr("Tag suggestions request was cancelled.")};
+        for (auto &callback : callbacks)
+            callback(Result<QList<TagSuggestion>>::failure(error));
+    }
 }
 
 void ShimmieProvider::updateTags(qint64 id, const QSet<QString> &tags, const QSet<QString> &, Callback<bool> callback)

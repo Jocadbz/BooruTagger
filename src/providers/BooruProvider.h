@@ -36,6 +36,7 @@ class BooruProvider : public QObject {
     virtual void updateTags(qint64 id, const QSet<QString> &tags, const QSet<QString> &latest,
                             Callback<bool> callback) = 0;
     virtual bool remoteAutocomplete() const = 0;
+    virtual bool prefetchTagIndex() const { return false; }
     virtual void cancel();
     const Instance &instance() const { return m_http.instance(); }
     HttpClient *http() { return &m_http; }

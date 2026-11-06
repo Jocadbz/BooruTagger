@@ -12,11 +12,13 @@ class CompletionProvider : public BooruProvider {
     using BooruProvider::BooruProvider;
     QList<QString> prefixes;
     QList<Callback<QList<TagSuggestion>>> callbacks;
+    bool shouldPrefetch = false;
     void authenticate(const QString &, Callback<AuthInfo>) override {}
     void fetchPost(qint64, Callback<Post>) override {}
     void searchPosts(const SearchRequest &, Callback<SearchPage>) override {}
     void updateTags(qint64, const QSet<QString> &, const QSet<QString> &, Callback<bool>) override {}
     bool remoteAutocomplete() const override { return true; }
+    bool prefetchTagIndex() const override { return shouldPrefetch; }
     void searchTags(const QString &prefix, Callback<QList<TagSuggestion>> callback) override
     {
         prefixes.append(prefix);
@@ -63,6 +65,33 @@ class CompletionTests : public QObject {
         QVERIFY(last.isEmpty());
         completion.setProvider(nullptr);
         QVERIFY(last.isEmpty());
+    }
+    void primesPopularTagIndex()
+    {
+        Database db(":memory:");
+        const Instance instance{"shm", "shimmie", ProviderKind::Shimmie, QUrl("https://shimmie.test"), "user", false};
+        db.saveInstance(instance);
+        CompletionProvider provider(instance);
+        provider.shouldPrefetch = true;
+        Completion completion(&db);
+        QList<TagSuggestion> last;
+        connect(&completion, &Completion::suggestions, this, [&](const auto &tags) { last = tags; });
+
+        completion.setProvider(&provider);
+        completion.setProvider(&provider);
+        QCOMPARE(provider.prefixes.size(), 1);
+        QCOMPARE(provider.prefixes.first(), QString());
+        provider.callbacks.first()(
+            Result<QList<TagSuggestion>>::success({{"solo", {}, 234, false, {}}, {"tagme", {}, 98, false, {}}}));
+        QCOMPARE(db.cachedTags(instance.id, "").size(), 2);
+        QCOMPARE(db.cachedTags(instance.id, "solo").first().postCount.value(), 234);
+
+        completion.request("so");
+        QCOMPARE(last.size(), 1);
+        QCOMPARE(last.first().name, QString("solo"));
+        QTRY_COMPARE(provider.prefixes.size(), 2);
+        QCOMPARE(provider.prefixes.last(), QString("so"));
+        completion.setProvider(nullptr);
     }
     void sessionOnlyCredentials()
     {
