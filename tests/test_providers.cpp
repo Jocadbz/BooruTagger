@@ -158,6 +158,46 @@ class ProviderTests : public QObject {
         QVERIFY(!body.value("query").toString().contains("secret"));
         QCOMPARE(body.value("variables").toObject().value("password").toString(), QString("secret"));
     }
+    void shimmieTagSearchUsesTerms()
+    {
+        HttpFixture server;
+        server.handler = [](const FixtureRequest &request) -> FixtureResponse {
+            const auto query = request.json().value("query").toString();
+            if (query.contains("__schema"))
+                return {
+                    200,
+                    R"({"data":{"__schema":{"queryType":{"fields":[{"name":"posts","args":[{"name":"limit","type":{"kind":"SCALAR","name":"Int"}},{"name":"offset","type":{"kind":"SCALAR","name":"Int"}},{"name":"terms","type":{"kind":"LIST","ofType":{"kind":"SCALAR","name":"String"}}}]}]},"mutationType":{"fields":[{"name":"login","args":[{"name":"username","type":{"kind":"SCALAR","name":"String"}},{"name":"password","type":{"kind":"SCALAR","name":"String"}}]}]}}}})",
+                    {},
+                    false};
+            if (query.contains("login("))
+                return {200, R"({"data":{"login":{"user":{"name":"tester"},"session":"search-token"}}})", {}, false};
+            return {
+                200,
+                R"({"data":{"posts":[{"id":"post:73","post_id":73,"tags":["tagme","solo"],"source":"","hash":"abc","ext":"png","image_link":"/image/73.png"}]}})",
+                {},
+                false};
+        };
+        ShimmieProvider provider(
+            {"shm-search", "test", ProviderKind::Shimmie, server.base("/archive/"), "tester", true});
+        std::optional<Result<AuthInfo>> auth;
+        provider.authenticate("password", [&](auto result) { auth = result; });
+        QTRY_VERIFY(auth.has_value());
+        QVERIFY(*auth);
+
+        std::optional<Result<SearchPage>> search;
+        provider.searchPosts({"tagme", 20, {}, 0}, [&](auto result) { search = result; });
+        QTRY_VERIFY(search.has_value());
+        QVERIFY(*search);
+        QCOMPARE(search->value->posts.size(), 1);
+        QCOMPARE(search->value->posts.first().id, 73);
+        QCOMPARE(search->value->posts.first().tags, QStringList({"tagme", "solo"}));
+        const auto request = server.requests.last().json();
+        QVERIFY(request.value("query").toString().contains("posts(limit:$limit,offset:$offset,terms:$terms)"));
+        const auto variables = request.value("variables").toObject();
+        QCOMPARE(variables.value("terms").toArray(), QJsonArray({"tagme"}));
+        QCOMPARE(variables.value("limit").toInt(), 20);
+        QCOMPARE(variables.value("offset").toInt(), 0);
+    }
     void shimmieSinglePostSchema()
     {
         HttpFixture server;
@@ -178,11 +218,11 @@ class ProviderTests : public QObject {
                     {},
                     false};
             if (query.contains("posts("))
-                return {
-                    200,
-                    "{\"errors\":[{\"message\":\"Cannot query field \\\"posts\\\" on type \\\"Query\\\". Did you mean \\\"post\\\"?\"}]}",
-                    {},
-                    false};
+                return {200,
+                        "{\"errors\":[{\"message\":\"Cannot query field \\\"posts\\\" on type \\\"Query\\\". Did you "
+                        "mean \\\"post\\\"?\"}]}",
+                        {},
+                        false};
             return {200, R"({"data":{}})", {}, false};
         };
         ShimmieProvider provider(
@@ -212,7 +252,7 @@ class ProviderTests : public QObject {
         QTRY_VERIFY(search.has_value());
         QVERIFY(!*search);
         QCOMPARE(search->error.kind, ErrorKind::InvalidData);
-        QVERIFY(search->error.message.contains("single-post GraphQL query"));
+        QVERIFY(search->error.message.contains("does not advertise"));
         QCOMPARE(server.requests.size(), requestCount);
     }
     void shimmieRecoversFromUnsupportedPostsError()
@@ -234,11 +274,11 @@ class ProviderTests : public QObject {
             if (query.contains("login("))
                 return {200, R"({"data":{"login":{"user":{"name":"tester"},"session":"recovered-token"}}})", {}, false};
             if (query.contains("posts("))
-                return {
-                    200,
-                    "{\"errors\":[{\"message\":\"Cannot query field \\\"posts\\\" on type \\\"Query\\\". Did you mean \\\"post\\\"?\"}]}",
-                    {},
-                    false};
+                return {200,
+                        "{\"errors\":[{\"message\":\"Cannot query field \\\"posts\\\" on type \\\"Query\\\". Did you "
+                        "mean \\\"post\\\"?\"}]}",
+                        {},
+                        false};
             if (query.contains("post(post_id:$post_id)"))
                 return {
                     200,

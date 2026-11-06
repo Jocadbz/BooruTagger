@@ -255,11 +255,15 @@ void ShimmieProvider::searchPosts(const SearchRequest &request, Callback<SearchP
         }
         const auto message =
             m_queryFields.contains("post")
-                ? tr("This Shimmie schema exposes only the single-post GraphQL query, not a tag-search query. Exact-ID "
-                     "sessions and ID ranges are supported; tag-search sessions require a GraphQL 'posts' field with "
-                     "limit, offset, and terms arguments.")
-                : tr("This Shimmie schema has no compatible post-search query. Enable a GraphQL 'posts' field with "
-                     "limit, offset, and terms arguments, or use a single-ID session if the schema exposes 'post'.");
+                ? tr("This server's GraphQL schema does not advertise the Shimmie 'posts' search query. Tag search "
+                     "uses "
+                     "posts(terms, limit, offset); exact-ID and range sessions can use post(post_id). Update or enable "
+                     "a "
+                     "GraphQL schema that exposes the documented search query to use tag-search sessions.")
+                : tr("This server's GraphQL schema does not advertise a compatible post-search query. Enable the "
+                     "Shimmie "
+                     "posts(terms, limit, offset) query, or use an exact-ID or range session if post(post_id) is "
+                     "available.");
         callback(Result<SearchPage>::failure({ErrorKind::InvalidData, message}));
         return;
     }
