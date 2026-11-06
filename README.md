@@ -1,4 +1,8 @@
-# BooruTagger
+<p align="center">
+  <img src="icon/hieda.png" alt="BooruTagger icon" width="180">
+</p>
+
+<h1 align="center">BooruTagger</h1>
 
 A C++/Qt app to do a lot of tag editing on boorus (Danbooru, Shimmie, etc). 
 
