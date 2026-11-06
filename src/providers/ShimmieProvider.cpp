@@ -1,8 +1,10 @@
 #include "ShimmieProvider.h"
 
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <QUrlQuery>
 
 namespace bt {
 namespace {
@@ -239,11 +241,11 @@ Result<Post> ShimmieProvider::parsePost(const QJsonObject &object, const QUrl &b
 
 void ShimmieProvider::searchPosts(const SearchRequest &request, Callback<SearchPage> callback)
 {
-    if (m_schemaKnown && !supportsSearch()) {
-        static const QRegularExpression postIdQuery(QStringLiteral("^\\s*id\\s*=\\s*(\\d+)\\s*$"),
-                                                    QRegularExpression::CaseInsensitiveOption);
-        const auto match = postIdQuery.match(request.query);
-        if (match.hasMatch() && !m_singlePostIdArgument.isEmpty()) {
+    static const QRegularExpression postIdQuery(QStringLiteral("^\\s*id\\s*=\\s*(\\d+)\\s*$"),
+                                                QRegularExpression::CaseInsensitiveOption);
+    const auto match = postIdQuery.match(request.query);
+    if (match.hasMatch()) {
+        if (m_schemaKnown && !m_singlePostIdArgument.isEmpty()) {
             fetchSinglePost(match.captured(1).toLongLong(), m_singlePostIdArgument, [callback](Result<Post> result) {
                 if (!result) {
                     callback(Result<SearchPage>::failure(result.error));
@@ -253,69 +255,119 @@ void ShimmieProvider::searchPosts(const SearchRequest &request, Callback<SearchP
             });
             return;
         }
-        const auto message =
-            m_queryFields.contains("post")
-                ? tr("This server's GraphQL schema does not advertise the Shimmie 'posts' search query. Tag search "
-                     "uses "
-                     "posts(terms, limit, offset); exact-ID and range sessions can use post(post_id). Update or enable "
-                     "a "
-                     "GraphQL schema that exposes the documented search query to use tag-search sessions.")
-                : tr("This server's GraphQL schema does not advertise a compatible post-search query. Enable the "
-                     "Shimmie "
-                     "posts(terms, limit, offset) query, or use an exact-ID or range session if post(post_id) is "
-                     "available.");
-        callback(Result<SearchPage>::failure({ErrorKind::InvalidData, message}));
+        if (m_schemaKnown && !supportsSearch()) {
+            callback(Result<SearchPage>::failure(
+                {ErrorKind::InvalidData,
+                 tr("This Shimmie schema has neither post(post_id) nor a posts search query.")}));
+            return;
+        }
+        const int limit = qBound(1, request.limit, 100);
+        const auto operationRequest = operation(
+            "posts",
+            {{"limit", limit}, {"offset", request.offset}, {"terms", QJsonArray::fromStringList({request.query})}},
+            "id post_id tags source hash ext image_link", false);
+        graphql(operationRequest.value("query").toString(), operationRequest.value("variables").toObject(),
+                [this, request, limit, callback](Result<QJsonObject> result) {
+                    if (!result) {
+                        if (isMissingPostsField(result.error) && !m_schemaKnown && !m_schemaRetryDone) {
+                            m_schemaRetryDone = true;
+                            m_schemaChecked = false;
+                            detectSchema([this, request, callback] { searchPosts(request, callback); });
+                            return;
+                        }
+                        callback(Result<SearchPage>::failure(result.error));
+                        return;
+                    }
+                    if (!result.value->value("posts").isArray()) {
+                        callback(Result<SearchPage>::failure(
+                            {ErrorKind::InvalidData, tr("Expected a Shimmie post array.")}));
+                        return;
+                    }
+                    SearchPage page;
+                    for (const auto &value : result.value->value("posts").toArray()) {
+                        const auto post = parsePost(value.toObject(), instance().baseUrl);
+                        if (!post) {
+                            callback(Result<SearchPage>::failure(post.error));
+                            return;
+                        }
+                        page.posts.append(*post.value);
+                    }
+                    page.more = page.posts.size() >= limit;
+                    callback(Result<SearchPage>::success(page));
+                });
         return;
     }
+    searchOuroboros(request, std::move(callback));
+}
+
+Result<Post> ShimmieProvider::parseOuroborosPost(const QJsonObject &object, const QUrl &base)
+{
+    Post post;
+    post.id = jsonId(object.value("id"));
+    if (post.id < 1 || !object.value("tags").isString())
+        return Result<Post>::failure(
+            {ErrorKind::InvalidData, QStringLiteral("Invalid Ouroboros post: id and tags are required.")});
+    post.tags = splitTags(object.value("tags").toString(), ProviderKind::Shimmie);
+    const auto fileUrl = object.value("file_url").toString();
+    const auto previewUrl = object.value("preview_url").toString();
+    auto baseDirectory = base;
+    if (!baseDirectory.path().endsWith('/'))
+        baseDirectory.setPath(baseDirectory.path() + '/');
+    if (!fileUrl.isEmpty())
+        post.mediaUrl = baseDirectory.resolved(QUrl(fileUrl));
+    if (!previewUrl.isEmpty())
+        post.previewUrl = baseDirectory.resolved(QUrl(previewUrl));
+    post.extension = object.value("file_ext").toString().toLower();
+    if (post.extension.isEmpty())
+        post.extension = QFileInfo(QUrl(fileUrl).path()).suffix().toLower();
+    post.dimensions = {object.value("width").toInt(), object.value("height").toInt()};
+    return Result<Post>::success(post);
+}
+
+void ShimmieProvider::searchOuroboros(const SearchRequest &request, Callback<SearchPage> callback)
+{
     const int limit = qBound(1, request.limit, 100);
-    const auto terms = request.query.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
-    const auto operationRequest =
-        operation("posts", {{"limit", limit}, {"offset", request.offset}, {"terms", QJsonArray::fromStringList(terms)}},
-                  "id post_id tags source hash ext image_link", false);
-    graphql(
-        operationRequest.value("query").toString(), operationRequest.value("variables").toObject(),
-        [this, limit, request, callback](Result<QJsonObject> result) {
-            if (!result) {
-                if (isMissingPostsField(result.error) && !m_schemaKnown && !m_schemaRetryDone) {
-                    m_schemaRetryDone = true;
-                    m_schemaChecked = false;
-                    detectSchema([this, request, callback] {
-                        if (m_schemaKnown) {
-                            searchPosts(request, callback);
-                        } else {
-                            callback(Result<SearchPage>::failure(
-                                {ErrorKind::InvalidData, tr("The server rejected the 'posts' query and did not expose "
-                                                            "an introspectable schema. "
-                                                            "Enable GraphQL schema introspection, or use a server with "
-                                                            "the Shimmie posts(limit, offset, terms) query.")}));
-                        }
-                    });
-                    return;
-                }
-                if (isMissingPostsField(result.error))
-                    result.error.message =
-                        tr("The server rejected GraphQL 'posts'. Its schema changed or the search field is "
-                           "unavailable. Use a single-ID or ID-range session if 'post' is available.");
-                callback(Result<SearchPage>::failure(result.error));
-                return;
+    auto url = endpoint(instance().baseUrl, "post/index.json");
+    QUrlQuery query;
+    query.addQueryItem("tags", request.query);
+    query.addQueryItem("limit", QString::number(limit));
+    query.addQueryItem("page", QString::number(qMax(1, request.offset / limit + 1)));
+    url.setQuery(query);
+    m_http.send("GET", url, {}, [this, limit, callback](Result<HttpResponse> response) {
+        if (!response) {
+            auto error = response.error;
+            if (error.httpStatus == 404 || error.kind == ErrorKind::InvalidData || error.kind == ErrorKind::Missing) {
+                error.kind = ErrorKind::InvalidData;
+                error.message = tr("Shimmie's Ouroboros API is unavailable. Enable the ouroboros_api extension in "
+                                   "Shimmie's Extension Manager, then retry the search.");
             }
-            if (!result.value->value("posts").isArray()) {
+            callback(Result<SearchPage>::failure(error));
+            return;
+        }
+        const auto document = parseJson(response.value->body);
+        if (!document || !document.value->isArray()) {
+            callback(Result<SearchPage>::failure(
+                {ErrorKind::InvalidData, tr("Shimmie's Ouroboros API did not return a post list. Enable the "
+                                            "ouroboros_api extension and retry.")}));
+            return;
+        }
+        SearchPage page;
+        for (const auto &value : document.value->array()) {
+            if (!value.isObject()) {
                 callback(Result<SearchPage>::failure(
-                    {ErrorKind::InvalidData, tr("Expected a Shimmie post array. Check the GraphQL schema version.")}));
+                    {ErrorKind::InvalidData, QStringLiteral("Invalid Ouroboros post list response.")}));
                 return;
             }
-            SearchPage page;
-            for (const auto &value : result.value->value("posts").toArray()) {
-                const auto post = parsePost(value.toObject(), instance().baseUrl);
-                if (!post) {
-                    callback(Result<SearchPage>::failure(post.error));
-                    return;
-                }
-                page.posts.append(*post.value);
+            auto post = parseOuroborosPost(value.toObject(), instance().baseUrl);
+            if (!post) {
+                callback(Result<SearchPage>::failure(post.error));
+                return;
             }
-            page.more = page.posts.size() >= limit;
-            callback(Result<SearchPage>::success(page));
-        });
+            page.posts.append(*post.value);
+        }
+        page.more = page.posts.size() >= limit;
+        callback(Result<SearchPage>::success(page));
+    });
 }
 
 void ShimmieProvider::fetchPost(qint64 id, Callback<Post> callback)

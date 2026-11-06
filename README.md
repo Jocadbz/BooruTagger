@@ -30,7 +30,7 @@ For distcc, configure with `-DBOORUTAGGER_USE_DISTCC=ON`, then build with `--par
 
 ## Usage
 
-Add an instance/account profile using its installation base URL. Sign in with a Danbooru API key or Shimmie password, then create or choose a session. Shimmie needs its 2.12+ GraphQL extension enabled. The instance dialog has a Testbooru shortcut for safe manual testing.
+Add an instance/account profile using its installation base URL. Sign in with a Danbooru API key or Shimmie password, then create or choose a session. Shimmie needs its 2.12+ GraphQL extension and its Ouroboros API extension enabled. The instance dialog has a Testbooru shortcut for safe manual testing.
 
 Paste space-separated tags or use suggestions; Enter/Tab accepts them. Select tags and press Delete, or use Ctrl+E for the full list. Ctrl+Z reverses local edits. Ctrl+S saves; Ctrl+Enter saves and advances; Alt+Left goes back; Alt+Right skips without submitting; Ctrl+K focuses tag input. Help lists the remaining shortcuts.
 
@@ -40,7 +40,7 @@ For sessions with tagme removal enabled, explicitly check **Sufficiently tagged*
 
 - APIs and full UI save flows are tested with local fixtures, not live accounts. Native MP4 rendering is tested on X11; Wayland and a real OS keychain backend still need manual testing. The video test skips without a display or ffmpeg.
 - Search IDs are materialized before editing (up to 100,000). Shimmie uses offset discovery only during this phase; external edits can still change its search results during discovery.
-- Shimmie completion uses locally observed/entered tags, without invented metadata. Introspection discovers available query fields and argument types. If an instance only exposes `post(id)`, exact-ID and range sessions use single-post lookups; tag searches need a `posts(limit, offset, terms)` field and fail with a capability message otherwise. Disabled introspection falls back to the documented GraphQL query, and a missing `posts` field triggers one introspection retry.
+- Shimmie tag searches use the official Ouroboros JSON endpoint `post/index.json`; enable the `ouroboros_api` extension in the instance's Extension Manager. GraphQL handles login, single-post lookup, and tag updates. Shimmie autocomplete uses locally observed/entered tags, without invented metadata.
 - Shimmie has no atomic compare-and-swap in this API. A change can race between the final read and write; verification catches differing final tags, not every overwritten intermediate edit.
 - Videos stream directly without forwarding API credentials/cookies to mpv. Media requiring those credentials may not play. Images use the instance's scoped network client. Image downloads are capped at 64 MiB; very large images decode at up to 8192 pixels per side.
 - Sessions, queues, drafts, and local history live in `~/.local/share/BooruTagger/BooruTagger/boorutagger.sqlite` by default (or `$XDG_DATA_HOME/BooruTagger/BooruTagger/boorutagger.sqlite`). Credentials are kept in the OS keychain when available/requested, otherwise only in memory. The decoded-image cache is capped at 96 MiB, disk media cache at 128 MiB per profile, and observed tags at 50,000 per profile. No AI tagging, telemetry, or external services.

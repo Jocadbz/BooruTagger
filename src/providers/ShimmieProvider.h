@@ -24,8 +24,10 @@ class ShimmieProvider : public BooruProvider {
                  bool login = false);
     void detectSchema(std::function<void()> callback);
     void fetchSinglePost(qint64 id, const QString &argument, Callback<Post> callback);
+    void searchOuroboros(const SearchRequest &request, Callback<SearchPage> callback);
     bool supportsSearch() const;
     static bool isMissingPostsField(const Error &error);
+    static Result<Post> parseOuroborosPost(const QJsonObject &object, const QUrl &base);
     QJsonObject operation(const QString &field, const QJsonObject &arguments, const QString &selection,
                           bool mutation) const;
     QHash<QString, QString> m_argumentTypes;

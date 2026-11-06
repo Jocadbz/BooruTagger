@@ -158,24 +158,26 @@ class ProviderTests : public QObject {
         QVERIFY(!body.value("query").toString().contains("secret"));
         QCOMPARE(body.value("variables").toObject().value("password").toString(), QString("secret"));
     }
-    void shimmieTagSearchUsesTerms()
+    void shimmieTagSearchUsesOuroboros()
     {
         HttpFixture server;
         server.handler = [](const FixtureRequest &request) -> FixtureResponse {
+            if (request.url.path().endsWith("/post/index.json"))
+                return {
+                    200,
+                    R"([{"id":73,"tags":"tagme solo","file_url":"media/73.png","preview_url":"thumb/73.png","width":640,"height":480,"file_ext":"png"}])",
+                    {},
+                    false};
             const auto query = request.json().value("query").toString();
             if (query.contains("__schema"))
                 return {
                     200,
-                    R"({"data":{"__schema":{"queryType":{"fields":[{"name":"posts","args":[{"name":"limit","type":{"kind":"SCALAR","name":"Int"}},{"name":"offset","type":{"kind":"SCALAR","name":"Int"}},{"name":"terms","type":{"kind":"LIST","ofType":{"kind":"SCALAR","name":"String"}}}]}]},"mutationType":{"fields":[{"name":"login","args":[{"name":"username","type":{"kind":"SCALAR","name":"String"}},{"name":"password","type":{"kind":"SCALAR","name":"String"}}]}]}}}})",
+                    R"({"data":{"__schema":{"queryType":{"fields":[{"name":"post","args":[{"name":"post_id","type":{"kind":"NON_NULL","ofType":{"kind":"SCALAR","name":"Int"}}}]}]},"mutationType":{"fields":[{"name":"login","args":[{"name":"username","type":{"kind":"SCALAR","name":"String"}},{"name":"password","type":{"kind":"SCALAR","name":"String"}}]}]}}}})",
                     {},
                     false};
             if (query.contains("login("))
                 return {200, R"({"data":{"login":{"user":{"name":"tester"},"session":"search-token"}}})", {}, false};
-            return {
-                200,
-                R"({"data":{"posts":[{"id":"post:73","post_id":73,"tags":["tagme","solo"],"source":"","hash":"abc","ext":"png","image_link":"/image/73.png"}]}})",
-                {},
-                false};
+            return {200, R"({"data":{}})", {}, false};
         };
         ShimmieProvider provider(
             {"shm-search", "test", ProviderKind::Shimmie, server.base("/archive/"), "tester", true});
@@ -191,17 +193,24 @@ class ProviderTests : public QObject {
         QCOMPARE(search->value->posts.size(), 1);
         QCOMPARE(search->value->posts.first().id, 73);
         QCOMPARE(search->value->posts.first().tags, QStringList({"tagme", "solo"}));
-        const auto request = server.requests.last().json();
-        QVERIFY(request.value("query").toString().contains("posts(limit:$limit,offset:$offset,terms:$terms)"));
-        const auto variables = request.value("variables").toObject();
-        QCOMPARE(variables.value("terms").toArray(), QJsonArray({"tagme"}));
-        QCOMPARE(variables.value("limit").toInt(), 20);
-        QCOMPARE(variables.value("offset").toInt(), 0);
+        QCOMPARE(search->value->posts.first().mediaUrl.toString(),
+                 QString("http://127.0.0.1:%1/archive/media/73.png").arg(server.serverPort()));
+        QCOMPARE(search->value->posts.first().previewUrl.toString(),
+                 QString("http://127.0.0.1:%1/archive/thumb/73.png").arg(server.serverPort()));
+        const auto request = server.requests.last();
+        QCOMPARE(request.method, QByteArray("GET"));
+        QCOMPARE(request.url.path(), QString("/archive/post/index.json"));
+        const QUrlQuery query(request.url);
+        QCOMPARE(query.queryItemValue("tags"), QString("tagme"));
+        QCOMPARE(query.queryItemValue("limit"), QString("20"));
+        QCOMPARE(query.queryItemValue("page"), QString("1"));
     }
     void shimmieSinglePostSchema()
     {
         HttpFixture server;
         server.handler = [](const FixtureRequest &request) -> FixtureResponse {
+            if (request.url.path().endsWith("/post/index.json"))
+                return {200, "<html><body>No handler for post/index.json</body></html>", {}, false};
             const auto query = request.json().value("query").toString();
             if (query.contains("__schema"))
                 return {
@@ -252,8 +261,8 @@ class ProviderTests : public QObject {
         QTRY_VERIFY(search.has_value());
         QVERIFY(!*search);
         QCOMPARE(search->error.kind, ErrorKind::InvalidData);
-        QVERIFY(search->error.message.contains("does not advertise"));
-        QCOMPARE(server.requests.size(), requestCount);
+        QVERIFY(search->error.message.contains("ouroboros_api"));
+        QCOMPARE(server.requests.size(), requestCount + 1);
     }
     void shimmieRecoversFromUnsupportedPostsError()
     {
